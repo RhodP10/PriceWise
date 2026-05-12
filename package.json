@@ -55,6 +55,7 @@
 		"svelte"
 	],
 	"dependencies": {
+		"chart.js": "^4.5.1",
 		"flowbite": "^4.0.1",
 		"flowbite-svelte": "^1.33.1"
 	}
