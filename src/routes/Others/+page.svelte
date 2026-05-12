@@ -117,8 +117,8 @@
 <section class="space-y-6">
 	<div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 		<div class="min-w-0 flex-1">
-			<h1 class="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">Others catalog</h1>
-			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+			<h1 class="text-2xl font-semibold tracking-tight text-zinc-900">Others catalog</h1>
+			<p class="mt-1 text-sm text-zinc-500">
 				Local: supplier grid. Lazada/Shopee: marketplace table with scrape status (no supplier column).
 			</p>
 		</div>
@@ -129,7 +129,7 @@
 				type="search"
 				bind:value={search}
 				placeholder="Search name or supplier…"
-				class="w-full min-w-[200px] rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm shadow-sm outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-500/15 sm:max-w-xs dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+				class="w-full min-w-[200px] rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm shadow-sm outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-500/15 sm:max-w-xs"
 			/>
 			<button
 				type="button"
@@ -141,7 +141,7 @@
 		</div>
 	</div>
 
-	<div class="border-b border-zinc-200 dark:border-zinc-700">
+	<div class="border-b border-zinc-200">
 		<nav class="-mb-px flex space-x-8" aria-label="Tabs">
 			{#each tabs as tab}
 				<button
@@ -149,7 +149,7 @@
 					onclick={() => (activeTab = tab.id)}
 					class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium {activeTab === tab.id
 						? 'border-sky-500 text-sky-600'
-						: 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+						: 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700'}"
 				>
 					{tab.label}
 				</button>
@@ -158,9 +158,9 @@
 	</div>
 
 	{#if activeTab === 'local'}
-		<div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+		<div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
 			<table class="w-full min-w-[920px] text-left text-sm">
-				<thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+				<thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500">
 					<tr>
 						<th class="px-3 py-3 font-medium">Item</th>
 						<th class="px-3 py-3 font-medium">Supplier</th>
@@ -174,15 +174,15 @@
 						<th class="px-3 py-3 font-medium text-right">Actions</th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+				<tbody class="divide-y divide-zinc-100">
 					{#each filtered as row (row.id)}
 						{#if editingId === row.id}
-							<tr class="bg-sky-50/50 dark:bg-sky-950/25">
+							<tr class="bg-sky-50/50">
 								<td class="px-3 py-2 align-top">
-									<input bind:value={draft.name} class="w-full rounded-lg border px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
+									<input bind:value={draft.name} class="w-full rounded-lg border px-2 py-1 text-sm" />
 								</td>
 								<td class="px-3 py-2 align-top">
-									<input bind:value={draft.supplier} class="w-full rounded-lg border px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
+									<input bind:value={draft.supplier} class="w-full rounded-lg border px-2 py-1 text-sm" />
 								</td>
 								<td class="px-3 py-2 align-top">
 									<input
@@ -190,7 +190,7 @@
 										min="0"
 										step="any"
 										bind:value={draft.packagePrice}
-										class="w-full rounded-lg border px-2 py-1 text-right text-sm tabular-nums dark:border-zinc-600 dark:bg-zinc-900"
+										class="w-full rounded-lg border px-2 py-1 text-right text-sm tabular-nums"
 									/>
 								</td>
 								<td class="px-3 py-2 align-top">
@@ -199,11 +199,11 @@
 										min="0"
 										step="any"
 										bind:value={draft.packageSize}
-										class="w-full rounded-lg border px-2 py-1 text-right text-sm tabular-nums dark:border-zinc-600 dark:bg-zinc-900"
+										class="w-full rounded-lg border px-2 py-1 text-right text-sm tabular-nums"
 									/>
 								</td>
 								<td class="px-3 py-2 align-top">
-									<select bind:value={draft.packageUnit} class="w-full rounded-lg border px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-900">
+									<select bind:value={draft.packageUnit} class="w-full rounded-lg border px-2 py-1 text-sm">
 										{#each MEASURE_UNIT_OPTIONS as u}
 											<option value={u.value}>{u.label}</option>
 										{/each}
@@ -215,12 +215,12 @@
 										min="0"
 										step="any"
 										bind:value={draft.shippingFee}
-										class="w-full rounded-lg border px-2 py-1 text-right text-sm tabular-nums dark:border-zinc-600 dark:bg-zinc-900"
+										class="w-full rounded-lg border px-2 py-1 text-right text-sm tabular-nums"
 									/>
 								</td>
 								<td class="px-3 py-2 align-top text-right text-xs text-zinc-500">Auto</td>
 								<td class="px-3 py-2 align-top text-xs text-zinc-500">Auto</td>
-								<td class="px-3 py-2 align-top text-right tabular-nums font-medium dark:text-sky-300">
+								<td class="px-3 py-2 align-top text-right tabular-nums font-medium">
 									₱{computeUnitCost(
 										draft.packagePrice ?? 0,
 										draft.shippingFee ?? 0,
@@ -231,40 +231,40 @@
 								<td class="px-3 py-2 align-top text-right">
 									<button
 										type="button"
-										class="mr-2 text-xs font-medium text-sky-700 hover:underline dark:text-sky-400"
+										class="mr-2 text-xs font-medium text-sky-700 hover:underline"
 										onclick={saveEdit}
 									>
 										Save
 									</button>
-									<button type="button" class="text-xs text-zinc-600 hover:underline dark:text-zinc-400" onclick={cancelEdit}>
+									<button type="button" class="text-xs text-zinc-600 hover:underline" onclick={cancelEdit}>
 										Cancel
 									</button>
 								</td>
 							</tr>
 						{:else}
-							<tr class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50">
-								<td class="px-3 py-2.5 font-medium text-zinc-900 dark:text-white">{row.name}</td>
-								<td class="px-3 py-2.5 text-zinc-600 dark:text-zinc-300">{row.supplier}</td>
+							<tr class="hover:bg-zinc-50/80">
+								<td class="px-3 py-2.5 font-medium text-zinc-900">{row.name}</td>
+								<td class="px-3 py-2.5 text-zinc-600">{row.supplier}</td>
 								<td class="px-3 py-2.5 text-right tabular-nums">₱{row.packagePrice.toFixed(2)}</td>
 								<td class="px-3 py-2.5 text-right tabular-nums">{row.packageSize}</td>
 								<td class="px-3 py-2.5">{row.packageUnit}</td>
 								<td class="px-3 py-2.5 text-right tabular-nums">₱{row.shippingFee.toFixed(2)}</td>
 								<td class="px-3 py-2.5 text-right tabular-nums">{row.baseQuantity}</td>
 								<td class="px-3 py-2.5">{row.baseUnit}</td>
-								<td class="px-3 py-2.5 text-right tabular-nums font-medium text-sky-800 dark:text-sky-300">
+								<td class="px-3 py-2.5 text-right tabular-nums font-medium text-sky-800">
 									₱{row.unitCost.toFixed(4)}
 								</td>
 								<td class="px-3 py-2.5 text-right">
 									<button
 										type="button"
-										class="mr-2 text-xs font-medium text-sky-700 hover:underline dark:text-sky-400"
+										class="mr-2 text-xs font-medium text-sky-700 hover:underline"
 										onclick={() => startEdit(row)}
 									>
 										Edit
 									</button>
 									<button
 										type="button"
-										class="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+										class="text-xs font-medium text-red-600 hover:underline"
 										onclick={() => requestDelete(row)}
 									>
 										Delete
@@ -283,7 +283,7 @@
 		</div>
 	{:else}
 		{#if filtered.length === 0}
-			<p class="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
+			<p class="py-12 text-center text-sm text-zinc-500">
 				No matches for “{search.trim()}”. Try the Local tab to add items first.
 			</p>
 		{:else}
