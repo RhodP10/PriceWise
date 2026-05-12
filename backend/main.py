@@ -37,6 +37,7 @@ from schemas import (
     RecipeOtherCostOut,
     RecipeOut,
     TokenOut,
+    PasswordChangeIn,
     UserOut,
     UserRegisterIn,
     WorkspaceState,
@@ -100,6 +101,19 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @app.get("/auth/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@app.patch("/auth/me/password")
+def change_password(
+    payload: PasswordChangeIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    current_user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/workspace")

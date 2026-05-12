@@ -2,7 +2,10 @@
 	import type { MeasureUnit, RecipeDTO } from '$lib/types/recipe';
 	import { ingredientCatalog, MEASURE_UNIT_OPTIONS } from '$lib/state/ingredientCatalog.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
+	import AddIngredientMasterModal from '$lib/components/recipes/AddIngredientMasterModal.svelte';
+	import AddOtherMasterModal from '$lib/components/recipes/AddOtherMasterModal.svelte';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
+	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import {
 		addRecipeIngredientLine,
 		addRecipeOtherLine,
@@ -10,10 +13,16 @@
 		deleteRecipeOtherLine,
 		updateRecipeIngredientLine,
 		updateRecipeName,
-		updateRecipeOtherLine
+		updateRecipeOtherLine,
+		updateRecipePricing
 	} from '$lib/state/recipes.svelte';
 	import { convertQuantity } from '$lib/utils/unitConvert';
-	import { recipeIngredientSubtotal, recipeOtherSubtotal } from '$lib/utils/recipeCosting';
+	import {
+		computeAutoSyncedRecipePricing,
+		recipeIngredientSubtotal,
+		recipeOtherSubtotal
+	} from '$lib/utils/recipeCosting';
+	import { untrack } from 'svelte';
 
 	const {
 		recipe,
@@ -28,19 +37,41 @@
 	let backdrop: HTMLDivElement | undefined = $state();
 
 	let draftName = $state('');
-	let addMasterId = $state('');
+	/** Single add form: switch type with segmented control */
+	let addMode = $state<'ingredient' | 'other'>('ingredient');
+	let addIngredientMasterId = $state('');
+	let addOtherMasterId = $state('');
 	let addQty = $state(1);
 	let addUnit = $state<MeasureUnit>('g');
 
-	let addOtherMasterId = $state('');
-	let otherQty = $state(1);
-	let otherUnit = $state<MeasureUnit>('piece');
+	let quickAddIngredientOpen = $state(false);
+	let quickAddOtherOpen = $state(false);
+
+	let openedRecipeId = $state<string | null>(null);
 
 	let pendingLineRemove = $state<
 		| { kind: 'ingredient'; lineId: string; label: string }
 		| { kind: 'other'; lineId: string; label: string }
 		| null
 	>(null);
+
+	type CombinedRow =
+		| { kind: 'ingredient'; line: RecipeDTO['ingredientLines'][number] }
+		| { kind: 'other'; line: RecipeDTO['otherLines'][number] };
+
+	const masters = $derived(ingredientCatalog.items);
+	const otherMasters = $derived(otherCatalog.items);
+
+	const combinedLines = $derived.by((): CombinedRow[] => {
+		if (!recipe) return [];
+		return [
+			...recipe.ingredientLines.map((line) => ({ kind: 'ingredient' as const, line })),
+			...recipe.otherLines.map((line) => ({ kind: 'other' as const, line }))
+		];
+	});
+
+	const ingSub = $derived(recipe ? recipeIngredientSubtotal(recipe, masters) : 0);
+	const othSub = $derived(recipe ? recipeOtherSubtotal(recipe, otherMasters) : 0);
 
 	function askRemoveIngredient(lineId: string, label: string): void {
 		pendingLineRemove = { kind: 'ingredient', lineId, label };
@@ -61,24 +92,47 @@
 	}
 
 	$effect(() => {
+		if (open && recipe && openedRecipeId !== recipe.id) {
+			openedRecipeId = recipe.id;
+			addMode = 'ingredient';
+		}
+		if (!open) openedRecipeId = null;
+	});
+
+	$effect(() => {
 		if (recipe) draftName = recipe.name;
 	});
 
 	$effect(() => {
-		const first = ingredientCatalog.items[0]?.id ?? '';
-		if (!addMasterId && first) addMasterId = first;
+		if (!open) {
+			quickAddIngredientOpen = false;
+			quickAddOtherOpen = false;
+		}
 	});
 
 	$effect(() => {
-		const first = otherCatalog.items[0]?.id ?? '';
-		if (!addOtherMasterId && first) addOtherMasterId = first;
+		const firstIng = masters[0]?.id ?? '';
+		if (!addIngredientMasterId && firstIng) addIngredientMasterId = firstIng;
+		if (masters.length && !masters.some((m) => m.id === addIngredientMasterId)) {
+			addIngredientMasterId = firstIng;
+		}
 	});
 
-	const masters = $derived(ingredientCatalog.items);
-	const otherMasters = $derived(otherCatalog.items);
+	$effect(() => {
+		const firstOth = otherMasters[0]?.id ?? '';
+		if (!addOtherMasterId && firstOth) addOtherMasterId = firstOth;
+		if (otherMasters.length && !otherMasters.some((m) => m.id === addOtherMasterId)) {
+			addOtherMasterId = firstOth;
+		}
+	});
 
 	function fmt(n: number): string {
 		return `₱${n.toFixed(2)}`;
+	}
+
+	function catalogPickLabel(name: string, supplier: string): string {
+		const s = supplier.trim();
+		return s ? `${name} · ${s}` : name;
 	}
 
 	function ingLineCost(line: RecipeDTO['ingredientLines'][number]): number {
@@ -98,11 +152,15 @@
 	}
 
 	function onBackdropMouseDown(e: MouseEvent): void {
+		if (quickAddIngredientOpen || quickAddOtherOpen) return;
 		if (e.target === backdrop) onClose();
 	}
 
 	function onKeydown(e: KeyboardEvent): void {
-		if (e.key === 'Escape') onClose();
+		if (e.key === 'Escape') {
+			if (quickAddIngredientOpen || quickAddOtherOpen) return;
+			onClose();
+		}
 	}
 
 	function persistName(): void {
@@ -110,19 +168,86 @@
 		updateRecipeName(recipe.id, draftName);
 	}
 
-	function submitIngredientLine(e: Event): void {
+	function submitAddLine(e: Event): void {
 		e.preventDefault();
-		if (!recipe || !addMasterId) return;
-		addRecipeIngredientLine(recipe.id, addMasterId, addQty, addUnit);
+		if (!recipe) return;
+		if (addMode === 'ingredient') {
+			if (!masters.length || !addIngredientMasterId) return;
+			addRecipeIngredientLine(recipe.id, addIngredientMasterId, addQty, addUnit);
+		} else {
+			if (!otherMasters.length || !addOtherMasterId) return;
+			addRecipeOtherLine(recipe.id, addOtherMasterId, addQty, addUnit);
+		}
 		addQty = 1;
 	}
 
-	function submitOtherLine(e: Event): void {
-		e.preventDefault();
-		if (!recipe || !addOtherMasterId) return;
-		addRecipeOtherLine(recipe.id, addOtherMasterId, otherQty, otherUnit);
-		otherQty = 1;
-	}
+	const canAddIngredient = $derived(masters.length > 0 && Boolean(addIngredientMasterId));
+	const canAddOther = $derived(otherMasters.length > 0 && Boolean(addOtherMasterId));
+	const canSubmitAdd = $derived(addMode === 'ingredient' ? canAddIngredient : canAddOther);
+
+	type AddPreview =
+		| {
+				kind: 'ingredient' | 'other';
+				name: string;
+				baseUnit: string;
+				unitCost: number;
+				lineCost: number | null;
+				qtyOk: boolean;
+		  }
+		| null;
+
+	const addPreview = $derived.by((): AddPreview => {
+		if (addMode === 'ingredient') {
+			const m = masters.find((x) => x.id === addIngredientMasterId);
+			if (!m || !addIngredientMasterId) return null;
+			const q = convertQuantity(addQty, addUnit, m.baseUnit);
+			const qtyOk = q !== null && q >= 0;
+			const lineCost = qtyOk && q !== null ? q * m.unitCost : null;
+			return { kind: 'ingredient', name: m.name, baseUnit: m.baseUnit, unitCost: m.unitCost, lineCost, qtyOk };
+		}
+		const m = otherMasters.find((x) => x.id === addOtherMasterId);
+		if (!m || !addOtherMasterId) return null;
+		const q = convertQuantity(addQty, addUnit, m.baseUnit);
+		const qtyOk = q !== null && q >= 0;
+		const lineCost = qtyOk && q !== null ? q * m.unitCost : null;
+		return { kind: 'other', name: m.name, baseUnit: m.baseUnit, unitCost: m.unitCost, lineCost, qtyOk };
+	});
+
+	/** Keep channel prices in sync with costing settings while editing lines (same logic as costing panel). */
+	$effect(() => {
+		if (!open || !recipe) return;
+		void recipe.ingredientLines;
+		void recipe.otherLines;
+		void recipe.pricing;
+		void costingSettings.vatRegistered;
+		void costingSettings.vatPct;
+		void costingSettings.batchSize;
+		void costingSettings.targetMarginPct;
+		void costingSettings.discountPct;
+		void masters;
+		void otherMasters;
+		const settings = {
+			vatRegistered: costingSettings.vatRegistered,
+			vatPct: costingSettings.vatPct,
+			batchSize: costingSettings.batchSize,
+			targetMarginPct: costingSettings.targetMarginPct,
+			discountPct: costingSettings.discountPct
+		};
+		const next = computeAutoSyncedRecipePricing(recipe, masters, otherMasters, settings);
+		const cur = untrack(() => recipe.pricing);
+		if (
+			Math.abs(cur.local - next.local) < 0.005 &&
+			Math.abs(cur.shopee - next.shopee) < 0.005 &&
+			Math.abs(cur.lazada - next.lazada) < 0.005
+		) {
+			return;
+		}
+		updateRecipePricing(recipe.id, {
+			local: next.local,
+			shopee: next.shopee,
+			lazada: next.lazada
+		});
+	});
 </script>
 
 <svelte:window onkeydown={open ? onKeydown : undefined} />
@@ -131,7 +256,7 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		bind:this={backdrop}
-		class="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-4"
+		class="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 p-3 backdrop-blur-sm sm:items-center sm:p-4"
 		onmousedown={onBackdropMouseDown}
 		role="dialog"
 		aria-modal="true"
@@ -139,72 +264,124 @@
 		tabindex="-1"
 	>
 		<div
-			class="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl"
+			class="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-zinc-700/80 bg-white shadow-2xl ring-1 ring-black/5"
 		>
+			<!-- Recipe Manager–style header -->
 			<div
-				class="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-6"
+				class="relative shrink-0 overflow-hidden bg-zinc-900 px-4 py-5 text-white sm:px-6 sm:py-6"
 			>
-				<div class="min-w-0 flex-1">
-					<label for="recipe-name-field" class="sr-only">Recipe name</label>
-					<input
-						id="recipe-name-field"
-						bind:value={draftName}
-						onchange={persistName}
-						class="w-full max-w-md border-b border-transparent text-xl font-semibold text-zinc-900 outline-none focus:border-emerald-400"
-					/>
-					<p class="mt-1 text-sm text-zinc-500">
-						{recipe.ingredientLines.length} catalog ingredient line(s) · {recipe.otherLines.length}
-						other line(s)
-					</p>
+				<div
+					class="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-orange-500/25 blur-3xl"
+				></div>
+				<div
+					class="pointer-events-none absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-amber-500/10 blur-2xl"
+				></div>
+				<div class="relative flex flex-wrap items-start justify-between gap-3">
+					<div class="min-w-0 flex-1">
+						<div class="flex flex-wrap items-center gap-2">
+							<div
+								class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white shadow-lg shadow-orange-900/30"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="20"
+									height="20"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									aria-hidden="true"
+								>
+									<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+									<path d="M7 2v20" />
+									<path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+								</svg>
+							</div>
+							<div class="min-w-0">
+								<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Recipe details</p>
+								<label for="recipe-name-field" class="sr-only">Recipe name</label>
+								<input
+									id="recipe-name-field"
+									bind:value={draftName}
+									onchange={persistName}
+									class="mt-0.5 w-full max-w-md border-b border-transparent bg-transparent text-xl font-bold tracking-tight text-white outline-none placeholder-zinc-600 focus:border-orange-400"
+								/>
+							</div>
+						</div>
+						<div class="mt-3 flex flex-wrap gap-2">
+							<span
+								class="inline-flex items-center rounded-lg bg-zinc-800/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-white/10"
+							>
+								{recipe.ingredientLines.length} ingredients
+							</span>
+							<span
+								class="inline-flex items-center rounded-lg bg-zinc-800/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-white/10"
+							>
+								{recipe.otherLines.length} others
+							</span>
+							<span class="text-xs tabular-nums text-zinc-500">
+								Lines total: <span class="font-semibold text-zinc-300">{combinedLines.length}</span>
+							</span>
+						</div>
+					</div>
+					<button
+						type="button"
+						class="rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+						onclick={onClose}
+						aria-label="Close"
+					>
+						<span class="text-xl leading-none">×</span>
+					</button>
 				</div>
-				<button
-					type="button"
-					class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-					onclick={onClose}
-					aria-label="Close"
-				>
-					<span class="text-xl leading-none">×</span>
-				</button>
 			</div>
 
-			<div
-				class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"
-			>
-				<!-- Ingredients + others -->
-				<div class="mx-auto max-w-4xl space-y-6">
-					<section>
-						<h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-400">Ingredients</h3>
-						<p class="mt-1 text-xs leading-snug text-zinc-500">
-							Catalog stores <strong>purchase cost</strong> and <strong>package size</strong>; the app converts to a
-							café base unit (liquids → ml, solids → g, packaging → piece), then
-							<strong>cost per line = recipe qty (in base) × unit cost</strong>. Example: water ₱30 per 1 gal → ~3785 ml
-							base → cost per ml = 30 ÷ 3785; recipe 150 ml → 150 × that rate.
-						</p>
+			<!-- Scroll: one compact categorized table -->
+			<div class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto bg-zinc-50/80 p-4 sm:p-5">
+				<div class="mx-auto max-w-2xl">
+					<p class="mb-2 text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+						Recipe lines
+					</p>
+					<p class="mb-3 text-center text-xs leading-relaxed text-zinc-500">
+						Each row is either an <strong class="text-zinc-700">ingredient</strong> or an
+						<strong class="text-zinc-700">other</strong> (cups, lids, etc.). Pick the catalog item, qty, and unit.
+					</p>
 
-						<div class="mt-3 overflow-hidden rounded-xl border border-zinc-200">
-							<table class="w-full text-left text-sm">
-								<thead class="bg-zinc-50 text-xs uppercase text-zinc-500">
-									<tr>
-										<th class="px-3 py-2 font-medium">Item</th>
-										<th class="px-3 py-2 font-medium">Qty</th>
-										<th class="px-3 py-2 font-medium text-right">₱/unit</th>
-										<th class="px-3 py-2 font-medium text-right">Line</th>
-										<th class="px-3 py-2 w-16"></th>
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-zinc-100">
-									{#each recipe.ingredientLines as line (line.id)}
+					<div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+						<table class="w-full text-left text-sm">
+							<thead class="bg-zinc-100 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+								<tr>
+									<th class="px-3 py-2.5 font-medium">Type</th>
+									<th class="px-3 py-2.5 font-medium">Item</th>
+									<th class="px-3 py-2.5 font-medium">Qty</th>
+									<th class="hidden px-3 py-2.5 font-medium text-right sm:table-cell">₱/u</th>
+									<th class="px-3 py-2.5 font-medium text-right">Line</th>
+									<th class="w-10 px-2 py-2.5"></th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-zinc-100">
+								{#each combinedLines as row (row.kind + row.line.id)}
+									{#if row.kind === 'ingredient'}
+										{@const line = row.line}
 										{@const m = masters.find((x) => x.id === line.ingredientMasterId)}
 										<tr class="bg-white">
-											<td class="px-3 py-2 align-top">
+											<td class="px-3 py-2.5 align-top">
+												<span
+													class="inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-800 ring-1 ring-emerald-200/80"
+												>
+													Ingr.
+												</span>
+											</td>
+											<td class="max-w-[140px] px-3 py-2.5 align-top sm:max-w-none">
 												{#if m}
 													<span class="font-medium text-zinc-900">{m.name}</span>
-													<span class="mt-1 block text-[10px] text-zinc-400">{m.supplier}</span>
+													<span class="mt-0.5 block truncate text-[10px] text-zinc-400">{m.supplier}</span>
 												{:else}
-													<span class="text-amber-700">Missing catalog ID — pick again</span>
+													<span class="text-amber-700">Missing item</span>
 												{/if}
 												<select
-													class="mt-2 block w-full max-w-[220px] rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+													class="mt-1.5 block w-full min-w-0 rounded-lg border border-zinc-200 px-2 py-1 text-xs"
 													value={line.ingredientMasterId}
 													onchange={(e) =>
 														updateRecipeIngredientLine(recipe.id, line.id, {
@@ -212,16 +389,16 @@
 														})}
 												>
 													{#each masters as cat}
-														<option value={cat.id}>{cat.name}</option>
+														<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
 													{/each}
 												</select>
 											</td>
-											<td class="px-3 py-2 align-top">
+											<td class="px-3 py-2.5 align-top">
 												<input
 													type="number"
 													min="0"
 													step="any"
-													class="mb-1 w-20 rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+													class="mb-1 w-full min-w-[3.5rem] max-w-[5rem] rounded-lg border border-zinc-200 px-1.5 py-1 text-xs"
 													value={line.quantity}
 													onchange={(e) =>
 														updateRecipeIngredientLine(recipe.id, line.id, {
@@ -229,7 +406,7 @@
 														})}
 												/>
 												<select
-													class="block w-[100px] rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+													class="block w-full min-w-0 max-w-[6.5rem] rounded-lg border border-zinc-200 px-1 py-1 text-[10px]"
 													value={line.unit}
 													onchange={(e) =>
 														updateRecipeIngredientLine(recipe.id, line.id, {
@@ -241,102 +418,42 @@
 													{/each}
 												</select>
 											</td>
-											<td class="px-3 py-2 text-right align-top tabular-nums text-zinc-600">
+											<td class="hidden px-3 py-2.5 text-right align-top tabular-nums text-zinc-600 sm:table-cell">
 												{m ? fmt(m.unitCost) : '—'}
 											</td>
-											<td class="px-3 py-2 text-right align-top tabular-nums font-medium text-zinc-900">
+											<td class="px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold text-zinc-900">
 												{fmt(ingLineCost(line))}
 											</td>
-											<td class="px-3 py-2 align-top">
+											<td class="px-2 py-2.5 align-top">
 												<button
 													type="button"
-													class="text-xs font-medium text-red-600 hover:underline"
-													onclick={() =>
-														askRemoveIngredient(line.id, m?.name ?? 'Ingredient line')}
+													class="text-[11px] font-medium text-red-600 hover:underline"
+													onclick={() => askRemoveIngredient(line.id, m?.name ?? 'Line')}
 												>
-													Remove
+													×
 												</button>
 											</td>
 										</tr>
-									{/each}
-								</tbody>
-							</table>
-							{#if recipe.ingredientLines.length === 0}
-								<p class="border-t border-zinc-100 bg-zinc-50/50 px-3 py-6 text-center text-sm text-zinc-500">
-									No ingredients yet — add a line below.
-								</p>
-							{/if}
-						</div>
-
-						<form
-							class="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50/50 p-3"
-							onsubmit={submitIngredientLine}
-						>
-							<span class="w-full text-xs font-semibold uppercase text-zinc-500">Add ingredient line</span>
-							<select
-								bind:value={addMasterId}
-								class="min-w-[140px] flex-1 rounded-lg border border-zinc-200 px-2 py-2 text-sm"
-							>
-								{#each masters as cat}
-									<option value={cat.id}>{cat.name}</option>
-								{/each}
-							</select>
-							<input
-								type="number"
-								min="0"
-								step="any"
-								bind:value={addQty}
-								class="w-24 rounded-lg border border-zinc-200 px-2 py-2 text-sm"
-								title="Quantity needed"
-							/>
-							<select bind:value={addUnit} class="rounded-lg border border-zinc-200 px-2 py-2 text-sm">
-								{#each MEASURE_UNIT_OPTIONS as u}
-									<option value={u.value}>{u.label}</option>
-								{/each}
-							</select>
-							<button
-								type="submit"
-								class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-							>
-								Add
-							</button>
-						</form>
-
-						<p class="mt-2 text-xs text-zinc-500">
-							Subtotal (ingredients): <strong>{fmt(recipeIngredientSubtotal(recipe, masters))}</strong>
-						</p>
-					</section>
-
-					<section class="border-t border-zinc-200 pt-6">
-						<h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-400">Others</h3>
-						<p class="mt-1 text-xs text-zinc-500">
-							Cups, lids, sleeves — pick from the <strong>Others</strong> catalog (same flow as ingredients).
-						</p>
-
-						<div class="mt-3 overflow-hidden rounded-xl border border-zinc-200">
-							<table class="w-full text-left text-sm">
-								<thead class="bg-zinc-50 text-xs uppercase text-zinc-500">
-									<tr>
-										<th class="px-3 py-2 font-medium">Item</th>
-										<th class="px-3 py-2 font-medium">Qty</th>
-										<th class="px-3 py-2 font-medium text-right">₱/unit</th>
-										<th class="px-3 py-2 font-medium text-right">Line</th>
-										<th class="w-16 px-3 py-2"></th>
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-zinc-100">
-									{#each recipe.otherLines as line (line.id)}
+									{:else}
+										{@const line = row.line}
 										{@const om = otherMasters.find((x) => x.id === line.otherMasterId)}
 										<tr class="bg-white">
-											<td class="px-3 py-2 align-top">
+											<td class="px-3 py-2.5 align-top">
+												<span
+													class="inline-flex rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-900 ring-1 ring-sky-200/80"
+												>
+													Other
+												</span>
+											</td>
+											<td class="max-w-[140px] px-3 py-2.5 align-top sm:max-w-none">
 												{#if om}
 													<span class="font-medium text-zinc-900">{om.name}</span>
-													<span class="mt-1 block text-[10px] text-zinc-400">{om.supplier}</span>
+													<span class="mt-0.5 block truncate text-[10px] text-zinc-400">{om.supplier}</span>
 												{:else}
-													<span class="text-amber-700">Missing catalog ID — pick again</span>
+													<span class="text-amber-700">Missing item</span>
 												{/if}
 												<select
-													class="mt-2 block w-full max-w-[220px] rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+													class="mt-1.5 block w-full min-w-0 rounded-lg border border-zinc-200 px-2 py-1 text-xs"
 													value={line.otherMasterId}
 													onchange={(e) =>
 														updateRecipeOtherLine(recipe.id, line.id, {
@@ -344,16 +461,16 @@
 														})}
 												>
 													{#each otherMasters as cat}
-														<option value={cat.id}>{cat.name}</option>
+														<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
 													{/each}
 												</select>
 											</td>
-											<td class="px-3 py-2 align-top">
+											<td class="px-3 py-2.5 align-top">
 												<input
 													type="number"
 													min="0"
 													step="any"
-													class="mb-1 w-20 rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+													class="mb-1 w-full min-w-[3.5rem] max-w-[5rem] rounded-lg border border-zinc-200 px-1.5 py-1 text-xs"
 													value={line.quantity}
 													onchange={(e) =>
 														updateRecipeOtherLine(recipe.id, line.id, {
@@ -361,7 +478,7 @@
 														})}
 												/>
 												<select
-													class="block w-[100px] rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+													class="block w-full min-w-0 max-w-[6.5rem] rounded-lg border border-zinc-200 px-1 py-1 text-[10px]"
 													value={line.unit}
 													onchange={(e) =>
 														updateRecipeOtherLine(recipe.id, line.id, {
@@ -373,82 +490,219 @@
 													{/each}
 												</select>
 											</td>
-											<td class="px-3 py-2 text-right align-top tabular-nums text-zinc-600">
+											<td class="hidden px-3 py-2.5 text-right align-top tabular-nums text-zinc-600 sm:table-cell">
 												{om ? fmt(om.unitCost) : '—'}
 											</td>
-											<td class="px-3 py-2 text-right align-top tabular-nums font-medium text-zinc-900">
+											<td class="px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold text-zinc-900">
 												{fmt(otherLineCost(line))}
 											</td>
-											<td class="px-3 py-2 align-top">
+											<td class="px-2 py-2.5 align-top">
 												<button
 													type="button"
-													class="text-xs font-medium text-red-600 hover:underline"
-													onclick={() => askRemoveOther(line.id, om?.name ?? 'Other line')}
+													class="text-[11px] font-medium text-red-600 hover:underline"
+													onclick={() => askRemoveOther(line.id, om?.name ?? 'Line')}
 												>
-													Remove
+													×
 												</button>
 											</td>
 										</tr>
-									{/each}
-								</tbody>
-							</table>
-							{#if recipe.otherLines.length === 0}
-								<p class="border-t border-zinc-100 bg-zinc-50/50 px-3 py-6 text-center text-sm text-zinc-500">
-									Add cups, lids, sleeves from the catalog below.
-								</p>
-							{/if}
-						</div>
-
-						<form
-							class="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50/50 p-3"
-							onsubmit={submitOtherLine}
-						>
-							<span class="w-full text-xs font-semibold uppercase text-zinc-500">Add other line</span>
-							<select
-								bind:value={addOtherMasterId}
-								class="min-w-[140px] flex-1 rounded-lg border border-zinc-200 px-2 py-2 text-sm"
-							>
-								{#each otherMasters as cat}
-									<option value={cat.id}>{cat.name}</option>
+									{/if}
 								{/each}
-							</select>
+							</tbody>
+						</table>
+						{#if combinedLines.length === 0}
+							<p class="border-t border-zinc-100 bg-zinc-50/60 px-4 py-8 text-center text-sm text-zinc-500">
+								No lines yet. Use <strong class="text-zinc-800">Add ingredient</strong> or
+								<strong class="text-zinc-800">Add other</strong> below — add catalog items on the
+								<strong>Ingredients</strong> and <strong>Others</strong> pages first if lists are empty.
+							</p>
+						{/if}
+					</div>
+
+					<div
+						class="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs shadow-sm sm:grid-cols-3"
+					>
+						<div>
+							<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Ingredients</p>
+							<p class="mt-0.5 font-bold tabular-nums text-zinc-900">{fmt(ingSub)}</p>
+						</div>
+						<div>
+							<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Others</p>
+							<p class="mt-0.5 font-bold tabular-nums text-zinc-900">{fmt(othSub)}</p>
+						</div>
+						<div class="col-span-2 border-t border-zinc-100 pt-2 sm:col-span-1 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+							<p class="text-[10px] font-bold uppercase tracking-wider text-orange-600">COGS this recipe</p>
+							<p class="mt-0.5 text-lg font-bold tabular-nums text-zinc-900">{fmt(ingSub + othSub)}</p>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Add bar: one row + costing clarity -->
+			<div
+				class="shrink-0 border-t border-zinc-200 bg-white px-4 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.06)] sm:px-6 sm:py-4"
+			>
+				<div class="mx-auto max-w-4xl space-y-2">
+					<div class="flex rounded-xl bg-zinc-100 p-1 ring-1 ring-zinc-200/80">
+						<button
+							type="button"
+							class="flex-1 rounded-lg py-2 text-xs font-bold uppercase tracking-wide transition sm:text-sm {addMode ===
+							'ingredient'
+								? 'bg-white text-emerald-800 shadow-sm ring-1 ring-zinc-200/80'
+								: 'text-zinc-500 hover:text-zinc-800'}"
+							onclick={() => (addMode = 'ingredient')}
+						>
+							Add ingredient
+						</button>
+						<button
+							type="button"
+							class="flex-1 rounded-lg py-2 text-xs font-bold uppercase tracking-wide transition sm:text-sm {addMode ===
+							'other'
+								? 'bg-white text-sky-900 shadow-sm ring-1 ring-zinc-200/80'
+								: 'text-zinc-500 hover:text-zinc-800'}"
+							onclick={() => (addMode = 'other')}
+						>
+							Add other
+						</button>
+					</div>
+
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+						<p class="max-w-xl text-[11px] leading-snug text-zinc-600">
+							<span class="font-bold text-zinc-800">Costing path:</span>
+							you attach a <strong>catalog {addMode === 'ingredient' ? 'ingredient' : 'other'}</strong> (price is
+							already per g, ml, or piece from that item’s package). This recipe then uses your
+							<strong>quantity + unit</strong> here — we convert to the catalog’s base unit and multiply by its
+							<strong>₱/base</strong> to get this line’s cost.
+						</p>
+						<button
+							type="button"
+							class="shrink-0 self-start rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition {addMode ===
+							'ingredient'
+								? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+								: 'border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100'}"
+							onclick={() =>
+								addMode === 'ingredient' ? (quickAddIngredientOpen = true) : (quickAddOtherOpen = true)}
+						>
+							+ New {addMode === 'ingredient' ? 'ingredient' : 'other'}
+						</button>
+					</div>
+
+					<form class="space-y-2" onsubmit={submitAddLine}>
+						{#if addMode === 'ingredient' && !masters.length}
+							<p class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900 ring-1 ring-amber-200">
+								Catalog is empty — tap <strong>+ New ingredient</strong> (e.g. matcha), then pick it in the row
+								below.
+							</p>
+						{:else if addMode === 'other' && !otherMasters.length}
+							<p class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900 ring-1 ring-amber-200">
+								Catalog is empty — tap <strong>+ New other</strong>, then pick it below.
+							</p>
+						{/if}
+
+						<div
+							class="flex min-w-0 flex-nowrap items-stretch gap-2 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50/40 p-2 ring-1 ring-zinc-100"
+							aria-label="Add line: catalog, quantity, unit, add"
+						>
+							{#if addMode === 'ingredient'}
+								<label class="sr-only" for="add-ing-select">Catalog ingredient</label>
+								<select
+									id="add-ing-select"
+									bind:value={addIngredientMasterId}
+									disabled={masters.length === 0}
+									class="min-h-[44px] min-w-[min(100%,11rem)] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
+									title="Pick catalog ingredient"
+								>
+									{#if masters.length === 0}
+										<option value="">— No items yet —</option>
+									{:else}
+										{#each masters as cat}
+											<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
+										{/each}
+									{/if}
+								</select>
+							{:else}
+								<label class="sr-only" for="add-oth-select">Catalog other</label>
+								<select
+									id="add-oth-select"
+									bind:value={addOtherMasterId}
+									disabled={otherMasters.length === 0}
+									class="min-h-[44px] min-w-[min(100%,11rem)] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
+									title="Pick catalog other"
+								>
+									{#if otherMasters.length === 0}
+										<option value="">— No items yet —</option>
+									{:else}
+										{#each otherMasters as cat}
+											<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
+										{/each}
+									{/if}
+								</select>
+							{/if}
+
+							<label class="sr-only" for="add-line-qty">Recipe quantity</label>
 							<input
+								id="add-line-qty"
 								type="number"
 								min="0"
 								step="any"
-								bind:value={otherQty}
-								class="w-24 rounded-lg border border-zinc-200 px-2 py-2 text-sm"
-								title="Quantity needed"
+								bind:value={addQty}
+								class="min-h-[44px] w-[4.5rem] shrink-0 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-center text-sm tabular-nums outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15"
+								title="How much this recipe uses"
 							/>
-							<select bind:value={otherUnit} class="rounded-lg border border-zinc-200 px-2 py-2 text-sm">
+
+							<label class="sr-only" for="add-line-unit">Unit for quantity</label>
+							<select
+								id="add-line-unit"
+								bind:value={addUnit}
+								class="min-h-[44px] w-[5.75rem] shrink-0 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 sm:w-[6.5rem]"
+							>
 								{#each MEASURE_UNIT_OPTIONS as u}
 									<option value={u.value}>{u.label}</option>
 								{/each}
 							</select>
+
 							<button
 								type="submit"
-								class="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+								disabled={!canSubmitAdd}
+								class="min-h-[44px] shrink-0 rounded-lg px-4 text-sm font-bold text-white shadow-md transition enabled:hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40 {addMode ===
+								'ingredient'
+									? 'bg-orange-600'
+									: 'bg-zinc-900'}"
 							>
-								Add
+								Add line
 							</button>
-						</form>
+						</div>
 
-						<p class="mt-2 text-xs text-zinc-500">
-							Subtotal (others): <strong>{fmt(recipeOtherSubtotal(recipe, otherMasters))}</strong>
-						</p>
-					</section>
+						{#if addPreview}
+							<div class="rounded-lg bg-zinc-100/80 px-2.5 py-2 text-[11px] leading-snug text-zinc-700">
+								<strong class="text-zinc-900">{addPreview.name}</strong>
+								<span class="text-zinc-500"> · catalog base </span>
+								<span class="font-mono tabular-nums text-zinc-800">{addPreview.baseUnit}</span>
+								<span class="text-zinc-500"> at </span>
+								<span class="font-semibold tabular-nums text-zinc-900">{fmt(addPreview.unitCost)}</span>
+								<span class="text-zinc-500"> /{addPreview.baseUnit}</span>
+								{#if addPreview.lineCost !== null && addPreview.qtyOk}
+									<span class="text-zinc-500"> → </span>
+									<span class="font-semibold text-emerald-800">this line ≈ {fmt(addPreview.lineCost)}</span>
+								{:else if !addPreview.qtyOk}
+									<span class="text-amber-800"> — unit can’t convert to this catalog’s base; try g, ml, or piece.</span>
+								{/if}
+							</div>
+						{/if}
+					</form>
 				</div>
 			</div>
 		</div>
 	</div>
 {/if}
 
+<AddIngredientMasterModal bind:open={quickAddIngredientOpen} />
+<AddOtherMasterModal bind:open={quickAddOtherOpen} />
+
 <TypeToConfirmDeleteModal
 	open={pendingLineRemove !== null}
 	title={pendingLineRemove?.kind === 'other' ? 'Remove other line?' : 'Remove ingredient line?'}
-	description={pendingLineRemove
-		? `Remove “${pendingLineRemove.label}” from this recipe.`
-		: ''}
+	description={pendingLineRemove ? `Remove “${pendingLineRemove.label}” from this recipe.` : ''}
 	onClose={() => (pendingLineRemove = null)}
 	onConfirm={executeLineRemove}
 />

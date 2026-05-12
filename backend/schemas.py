@@ -40,6 +40,11 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
+
+
 class RecipeCreateIn(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""

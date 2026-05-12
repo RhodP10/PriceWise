@@ -1,4 +1,4 @@
-/** Per-recipe sales captured when saving Summary → Statistics (only recipes with orders > 0) */
+/** Per-recipe sales when saving Summary → Statistics (recipes with orders > 0; empty when none) */
 export interface RecipeSalesSnapshotEntry {
 	recipeId: string;
 	recipeName: string;

@@ -99,7 +99,7 @@
 						bind:value={name}
 						required
 						class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-						placeholder="e.g. Arabica coffee"
+						placeholder="e.g. Matcha powder"
 					/>
 				</div>
 				<div>

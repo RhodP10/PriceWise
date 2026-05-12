@@ -6,6 +6,9 @@ import type {
 	RecipeOtherLineDTO,
 	RecipePricingDTO
 } from '$lib/types/recipe';
+import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
+import { otherCatalog } from '$lib/state/otherCatalog.svelte';
+import { convertQuantity } from '$lib/utils/unitConvert';
 
 export const recipeStore = $state({
 	recipes: structuredClone(mockRecipes) as RecipeDTO[]
@@ -14,6 +17,10 @@ export const recipeStore = $state({
 function newId(prefix: string): string {
 	if (typeof crypto !== 'undefined' && crypto.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
 	return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function roundQty(q: number): number {
+	return Math.round(q * 1e6) / 1e6;
 }
 
 export function addRecipe(name: string): string {
@@ -49,15 +56,55 @@ export function addRecipeIngredientLine(
 	quantity: number,
 	unit: MeasureUnit
 ): void {
-	const line: RecipeIngredientLineDTO = {
-		id: newId('rl'),
-		ingredientMasterId,
-		quantity,
-		unit
-	};
-	recipeStore.recipes = recipeStore.recipes.map((r) =>
-		r.id === recipeId ? { ...r, ingredientLines: [...r.ingredientLines, line] } : r
-	);
+	recipeStore.recipes = recipeStore.recipes.map((r) => {
+		if (r.id !== recipeId) return r;
+		const master = ingredientCatalog.items.find((m) => m.id === ingredientMasterId);
+		if (!master) {
+			const line: RecipeIngredientLineDTO = {
+				id: newId('rl'),
+				ingredientMasterId,
+				quantity,
+				unit
+			};
+			return { ...r, ingredientLines: [...r.ingredientLines, line] };
+		}
+		const base = master.baseUnit as MeasureUnit;
+		const same = r.ingredientLines.filter((l) => l.ingredientMasterId === ingredientMasterId);
+		const rest = r.ingredientLines.filter((l) => l.ingredientMasterId !== ingredientMasterId);
+		let totalBase = 0;
+		for (const l of same) {
+			const q = convertQuantity(l.quantity, l.unit, base);
+			if (q === null) {
+				const line: RecipeIngredientLineDTO = {
+					id: newId('rl'),
+					ingredientMasterId,
+					quantity,
+					unit
+				};
+				return { ...r, ingredientLines: [...r.ingredientLines, line] };
+			}
+			totalBase += q;
+		}
+		const qNew = convertQuantity(quantity, unit, base);
+		if (qNew === null) {
+			const line: RecipeIngredientLineDTO = {
+				id: newId('rl'),
+				ingredientMasterId,
+				quantity,
+				unit
+			};
+			return { ...r, ingredientLines: [...r.ingredientLines, line] };
+		}
+		totalBase += qNew;
+		const headId = same.length > 0 ? same[0]!.id : newId('rl');
+		const merged: RecipeIngredientLineDTO = {
+			id: headId,
+			ingredientMasterId,
+			quantity: roundQty(totalBase),
+			unit: base
+		};
+		return { ...r, ingredientLines: [...rest, merged] };
+	});
 }
 
 export function updateRecipeIngredientLine(
@@ -88,15 +135,55 @@ export function addRecipeOtherLine(
 	quantity: number,
 	unit: MeasureUnit
 ): void {
-	const line: RecipeOtherLineDTO = {
-		id: newId('ol'),
-		otherMasterId,
-		quantity,
-		unit
-	};
-	recipeStore.recipes = recipeStore.recipes.map((r) =>
-		r.id === recipeId ? { ...r, otherLines: [...r.otherLines, line] } : r
-	);
+	recipeStore.recipes = recipeStore.recipes.map((r) => {
+		if (r.id !== recipeId) return r;
+		const master = otherCatalog.items.find((m) => m.id === otherMasterId);
+		if (!master) {
+			const line: RecipeOtherLineDTO = {
+				id: newId('ol'),
+				otherMasterId,
+				quantity,
+				unit
+			};
+			return { ...r, otherLines: [...r.otherLines, line] };
+		}
+		const base = master.baseUnit as MeasureUnit;
+		const same = r.otherLines.filter((l) => l.otherMasterId === otherMasterId);
+		const rest = r.otherLines.filter((l) => l.otherMasterId !== otherMasterId);
+		let totalBase = 0;
+		for (const l of same) {
+			const q = convertQuantity(l.quantity, l.unit, base);
+			if (q === null) {
+				const line: RecipeOtherLineDTO = {
+					id: newId('ol'),
+					otherMasterId,
+					quantity,
+					unit
+				};
+				return { ...r, otherLines: [...r.otherLines, line] };
+			}
+			totalBase += q;
+		}
+		const qNew = convertQuantity(quantity, unit, base);
+		if (qNew === null) {
+			const line: RecipeOtherLineDTO = {
+				id: newId('ol'),
+				otherMasterId,
+				quantity,
+				unit
+			};
+			return { ...r, otherLines: [...r.otherLines, line] };
+		}
+		totalBase += qNew;
+		const headId = same.length > 0 ? same[0]!.id : newId('ol');
+		const merged: RecipeOtherLineDTO = {
+			id: headId,
+			otherMasterId,
+			quantity: roundQty(totalBase),
+			unit: base
+		};
+		return { ...r, otherLines: [...rest, merged] };
+	});
 }
 
 export function updateRecipeOtherLine(

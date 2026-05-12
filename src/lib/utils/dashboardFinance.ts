@@ -50,13 +50,19 @@ export function computeLiveMonthKpis(
 	};
 }
 
+/** Mean list price for a channel. Shopee/Lazada use only recipes with a price > 0 (unset marketplace prices excluded). */
 export function averageChannelPrice(
 	recipes: RecipeDTO[],
 	channel: 'local' | 'shopee' | 'lazada'
-): number {
-	if (recipes.length === 0) return 0;
-	const sum = recipes.reduce((s, r) => s + r.pricing[channel], 0);
-	return sum / recipes.length;
+): number | null {
+	if (recipes.length === 0) return null;
+	if (channel === 'local') {
+		const sum = recipes.reduce((s, r) => s + (Number.isFinite(r.pricing.local) ? r.pricing.local : 0), 0);
+		return sum / recipes.length;
+	}
+	const vals = recipes.map((r) => r.pricing[channel]).filter((v) => Number.isFinite(v) && v > 0);
+	if (vals.length === 0) return null;
+	return vals.reduce((s, v) => s + v, 0) / vals.length;
 }
 
 /** Mean suggested selling price from costing engine across recipes. */

@@ -11,17 +11,16 @@ import {
 } from '$lib/state/monthlySummaryStore.svelte';
 import { resetSummarySales, summarySales } from '$lib/state/summarySales.svelte';
 
-const LEGACY_PREFIX = 'pricewise_u';
-
-function legacyKey(userId: number, scope: string): string {
-	return `${LEGACY_PREFIX}${userId}_${scope}`;
-}
-
 let workspaceSaveEnabled = false;
 let workspacePersistTimer: ReturnType<typeof setTimeout> | null = null;
 let workspaceLoadGen = 0;
 
-const WORKSPACE_DEBOUNCE_MS = 1000;
+const WORKSPACE_DEBOUNCE_MS = 400;
+
+/** Deep-clone plain JSON data; avoids DataCloneError on Svelte reactive proxies. */
+function cloneJson<T>(value: T): T {
+	return JSON.parse(JSON.stringify(value)) as T;
+}
 
 export function setWorkspaceSaveEnabled(v: boolean): void {
 	workspaceSaveEnabled = v;
@@ -33,11 +32,11 @@ export function isWorkspaceSaveEnabled(): boolean {
 
 export function serializeWorkspacePayload(): WorkspaceClientPayload {
 	return {
-		recipes: structuredClone(recipeStore.recipes),
-		ingredients: structuredClone(ingredientCatalog.items),
-		others: structuredClone(otherCatalog.items),
-		opex: structuredClone(opexStore.lines),
-		summarySales: { ...summarySales.ordersPerMonthByRecipeId },
+		recipes: cloneJson(recipeStore.recipes),
+		ingredients: cloneJson(ingredientCatalog.items),
+		others: cloneJson(otherCatalog.items),
+		opex: cloneJson(opexStore.lines),
+		summarySales: cloneJson(summarySales.ordersPerMonthByRecipeId),
 		costingSettings: {
 			vatRegistered: costingSettings.vatRegistered,
 			vatPct: costingSettings.vatPct,
@@ -59,77 +58,23 @@ export function applyEmptyWorkspace(): void {
 
 export function applyWorkspacePayload(data: Partial<WorkspaceClientPayload> | null | undefined): void {
 	const d = data ?? {};
-	replaceRecipesFromApi(Array.isArray(d.recipes) ? structuredClone(d.recipes) : []);
-	replaceIngredientCatalogItems(Array.isArray(d.ingredients) ? structuredClone(d.ingredients) : []);
-	replaceOtherCatalogItems(Array.isArray(d.others) ? structuredClone(d.others) : []);
-	replaceOpexLines(Array.isArray(d.opex) ? structuredClone(d.opex) : []);
+	replaceRecipesFromApi(Array.isArray(d.recipes) ? cloneJson(d.recipes) : []);
+	replaceIngredientCatalogItems(Array.isArray(d.ingredients) ? cloneJson(d.ingredients) : []);
+	replaceOtherCatalogItems(Array.isArray(d.others) ? cloneJson(d.others) : []);
+	replaceOpexLines(Array.isArray(d.opex) ? cloneJson(d.opex) : []);
 	if (d.summarySales && typeof d.summarySales === 'object') {
-		summarySales.ordersPerMonthByRecipeId = structuredClone(d.summarySales);
+		summarySales.ordersPerMonthByRecipeId = cloneJson(d.summarySales);
 	} else {
 		resetSummarySales();
 	}
 	replaceCostingSettings(
-		d.costingSettings && typeof d.costingSettings === 'object' ? d.costingSettings : null
+		d.costingSettings && typeof d.costingSettings === 'object' ? cloneJson(d.costingSettings) : null
 	);
 }
 
-function readLegacyLocalStorage(userId: number): WorkspaceClientPayload | null {
-	if (typeof localStorage === 'undefined') return null;
-	try {
-		const recipes = localStorage.getItem(legacyKey(userId, 'recipes'));
-		const ingredients = localStorage.getItem(legacyKey(userId, 'ingredients'));
-		const others = localStorage.getItem(legacyKey(userId, 'others'));
-		const opex = localStorage.getItem(legacyKey(userId, 'opex'));
-		const sales = localStorage.getItem(legacyKey(userId, 'summary_sales'));
-		if (!recipes && !ingredients && !others && !opex && !sales) return null;
-		return {
-			recipes: recipes ? JSON.parse(recipes) : [],
-			ingredients: ingredients ? JSON.parse(ingredients) : [],
-			others: others ? JSON.parse(others) : [],
-			opex: opex ? JSON.parse(opex) : [],
-			summarySales: sales ? JSON.parse(sales) : {},
-			costingSettings: {
-				vatRegistered: costingSettings.vatRegistered,
-				vatPct: costingSettings.vatPct,
-				batchSize: costingSettings.batchSize,
-				targetMarginPct: costingSettings.targetMarginPct,
-				discountPct: costingSettings.discountPct
-			}
-		};
-	} catch {
-		return null;
-	}
-}
-
-function clearLegacyLocalStorage(userId: number): void {
-	if (typeof localStorage === 'undefined') return;
-	for (const scope of ['recipes', 'ingredients', 'others', 'opex', 'summary_sales', 'monthly_summaries']) {
-		localStorage.removeItem(legacyKey(userId, scope));
-	}
-}
-
-function isWorkspacePayloadEmpty(p: WorkspaceClientPayload): boolean {
-	return (
-		p.recipes.length === 0 &&
-		p.ingredients.length === 0 &&
-		p.others.length === 0 &&
-		p.opex.length === 0 &&
-		Object.keys(p.summarySales).length === 0
-	);
-}
-
-export async function pullWorkspaceFromServer(userId: number, token: string): Promise<void> {
+export async function pullWorkspaceFromServer(token: string): Promise<void> {
 	const server = await fetchWorkspace(token);
 	applyWorkspacePayload(server);
-
-	if (isWorkspacePayloadEmpty(server)) {
-		const legacy = readLegacyLocalStorage(userId);
-		if (legacy && !isWorkspacePayloadEmpty(legacy)) {
-			applyWorkspacePayload(legacy);
-			await putWorkspace(token, serializeWorkspacePayload());
-			clearLegacyLocalStorage(userId);
-		}
-	}
 }
 
 export function cancelWorkspacePersistDebounce(): void {
@@ -156,18 +101,18 @@ export async function pushWorkspaceNow(token: string): Promise<void> {
 }
 
 /** Load workspace + monthly summaries after login; disables saves until finished. */
-export async function bootstrapUserWorkspace(userId: number, token: string): Promise<void> {
+export async function bootstrapUserWorkspace(token: string): Promise<void> {
 	const gen = ++workspaceLoadGen;
 	setWorkspaceSaveEnabled(false);
 	applyEmptyWorkspace();
 	resetMonthlySummaryStore();
 
 	try {
-		await pullWorkspaceFromServer(userId, token);
+		await pullWorkspaceFromServer(token);
 	} catch (e) {
-		console.warn('workspace load failed', e);
-		applyEmptyWorkspace();
+		console.warn('workspace bootstrap pull failed', e);
 	}
+
 	if (gen !== workspaceLoadGen) return;
 
 	try {

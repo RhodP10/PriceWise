@@ -18,6 +18,12 @@
 	const otherMasters = $derived(otherCatalog.items);
 	const unitLoaded = $derived(perOrderTotalCost(recipe, masters, otherMasters));
 	const linesCount = $derived(recipe.ingredientLines.length + recipe.otherLines.length);
+
+	function fmtListPrice(ch: 'local' | 'shopee' | 'lazada'): string {
+		const v = recipe.pricing[ch];
+		if (ch !== 'local' && (!Number.isFinite(v) || v <= 0)) return '—';
+		return `₱${v.toFixed(2)}`;
+	}
 </script>
 
 <article
@@ -59,15 +65,15 @@
 			<div class="grid grid-cols-3 gap-2">
 				<div class="flex flex-col gap-1 rounded-2xl bg-zinc-50 p-3 shadow-inner">
 					<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Local</p>
-					<p class="text-sm font-bold tabular-nums text-zinc-900">₱{recipe.pricing.local}</p>
+					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('local')}</p>
 				</div>
 				<div class="flex flex-col gap-1 rounded-2xl bg-emerald-50/80 p-3 shadow-inner ring-1 ring-emerald-100">
 					<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Shopee</p>
-					<p class="text-sm font-bold tabular-nums text-zinc-900">₱{recipe.pricing.shopee}</p>
+					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('shopee')}</p>
 				</div>
 				<div class="flex flex-col gap-1 rounded-2xl bg-sky-50/80 p-3 shadow-inner ring-1 ring-sky-100">
 					<p class="text-[10px] font-bold uppercase tracking-wider text-sky-600">Lazada</p>
-					<p class="text-sm font-bold tabular-nums text-zinc-900">₱{recipe.pricing.lazada}</p>
+					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('lazada')}</p>
 				</div>
 			</div>
 		</div>

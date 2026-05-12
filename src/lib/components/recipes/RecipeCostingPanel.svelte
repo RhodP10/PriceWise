@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { IngredientMasterDTO, OtherItemMasterDTO, RecipeDTO } from '$lib/types/recipe';
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
-	import { computeSpreadsheetCosting, marginPercentAtPrice } from '$lib/utils/recipeCosting';
+	import { computeSpreadsheetCosting, computeAutoSyncedRecipePricing, marginPercentAtPrice } from '$lib/utils/recipeCosting';
 	import { updateRecipePricing } from '$lib/state/recipes.svelte';
 	import { untrack } from 'svelte';
 	import { fade } from 'svelte/transition';
@@ -40,6 +40,24 @@
 	const cogs = $derived(sheet.perOrder.totalCost);
 	const sell = $derived(sheet.perOrder.regularSellingPrice);
 	const marginPct = $derived(marginPercentAtPrice(sell, cogs));
+	const autoPricing = $derived.by(() => {
+		void recipe.ingredientLines;
+		void recipe.otherLines;
+		void costingSettings.vatRegistered;
+		void costingSettings.vatPct;
+		void costingSettings.batchSize;
+		void costingSettings.targetMarginPct;
+		void costingSettings.discountPct;
+		void ingredientMasters;
+		void otherMasters;
+		return computeAutoSyncedRecipePricing(recipe, ingredientMasters, otherMasters, {
+			vatRegistered: costingSettings.vatRegistered,
+			vatPct: costingSettings.vatPct,
+			batchSize: costingSettings.batchSize,
+			targetMarginPct: costingSettings.targetMarginPct,
+			discountPct: costingSettings.discountPct
+		});
+	});
 	const profitBeforeDiscount = $derived(sheet.perOrder.profitPerOrder);
 	const finalProfit = $derived(sheet.discount.discountedPrice - cogs);
 
@@ -67,19 +85,25 @@
 	const chartCostPct = $derived(sell > 0 ? Math.min(100, (cogs / sell) * 100) : 0);
 
 	$effect(() => {
-		const rounded = Math.round(sell * 100) / 100;
+		const next = computeAutoSyncedRecipePricing(recipe, ingredientMasters, otherMasters, {
+			vatRegistered: costingSettings.vatRegistered,
+			vatPct: costingSettings.vatPct,
+			batchSize: costingSettings.batchSize,
+			targetMarginPct: costingSettings.targetMarginPct,
+			discountPct: costingSettings.discountPct
+		});
 		const cur = untrack(() => recipe.pricing);
 		if (
-			Math.abs(cur.local - rounded) < 0.005 &&
-			Math.abs(cur.shopee - rounded) < 0.005 &&
-			Math.abs(cur.lazada - rounded) < 0.005
+			Math.abs(cur.local - next.local) < 0.005 &&
+			Math.abs(cur.shopee - next.shopee) < 0.005 &&
+			Math.abs(cur.lazada - next.lazada) < 0.005
 		) {
 			return;
 		}
 		updateRecipePricing(recipe.id, {
-			local: rounded,
-			shopee: rounded,
-			lazada: rounded
+			local: next.local,
+			shopee: next.shopee,
+			lazada: next.lazada
 		});
 	});
 
@@ -88,9 +112,17 @@
 	}
 
 	const channels = [
-		{ key: 'local' as const, label: 'Local', hint: 'Counter / in-store' },
-		{ key: 'shopee' as const, label: 'Shopee', hint: 'Synced margin' },
-		{ key: 'lazada' as const, label: 'Lazada', hint: 'Synced margin' }
+		{ key: 'local' as const, label: 'Local', hint: 'Catalog COGS + target margin' },
+		{
+			key: 'shopee' as const,
+			label: 'Shopee',
+			hint: 'Shopee landed price on every line in this recipe'
+		},
+		{
+			key: 'lazada' as const,
+			label: 'Lazada',
+			hint: 'Lazada landed price on every line in this recipe'
+		}
 	];
 </script>
 
@@ -261,7 +293,9 @@
 	<div class="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur-md">
 		<h3 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Channel pricing</h3>
 		<p class="mt-1 text-xs text-zinc-500">
-			Channel prices automatically follow ingredient costs and margin changes.
+			<strong class="text-zinc-700">Local</strong> uses your catalog COGS and margin settings.
+			<strong class="text-zinc-700">Shopee</strong> and <strong class="text-zinc-700">Lazada</strong> list prices appear only after every ingredient and
+			“other” line in this recipe has that channel’s landed package price filled in the catalog.
 		</p>
 		<ul class="mt-3 space-y-2">
 			{#each channels as row}
@@ -273,10 +307,36 @@
 						<p class="text-[11px] text-zinc-400">{row.hint}</p>
 					</div>
 					<div class="text-right">
-						<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(sell)}</p>
-						<p class="text-[11px] text-zinc-500">
-							<span class="tabular-nums">{marginPct.toFixed(1)}%</span> margin · +{fmt(profitBeforeDiscount)}
-						</p>
+						{#if row.key === 'local'}
+							<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(sell)}</p>
+							<p class="text-[11px] text-zinc-500">
+								<span class="tabular-nums">{marginPct.toFixed(1)}%</span> margin · +{fmt(profitBeforeDiscount)}
+							</p>
+						{:else if row.key === 'shopee'}
+							{#if autoPricing.shopee > 0 && autoPricing.cogsShopee !== null}
+								{@const mpS = marginPercentAtPrice(autoPricing.shopee, autoPricing.cogsShopee)}
+								{@const profS = autoPricing.shopee - autoPricing.cogsShopee}
+								<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(autoPricing.shopee)}</p>
+								<p class="text-[11px] text-zinc-500">
+									<span class="tabular-nums">{mpS.toFixed(1)}%</span> margin · +{fmt(profS)}
+								</p>
+							{:else}
+								<p class="text-base font-semibold text-zinc-400">—</p>
+								<p class="text-[11px] text-zinc-400">Set Shopee landed on all lines</p>
+							{/if}
+						{:else}
+							{#if autoPricing.lazada > 0 && autoPricing.cogsLazada !== null}
+								{@const mpL = marginPercentAtPrice(autoPricing.lazada, autoPricing.cogsLazada)}
+								{@const profL = autoPricing.lazada - autoPricing.cogsLazada}
+								<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(autoPricing.lazada)}</p>
+								<p class="text-[11px] text-zinc-500">
+									<span class="tabular-nums">{mpL.toFixed(1)}%</span> margin · +{fmt(profL)}
+								</p>
+							{:else}
+								<p class="text-base font-semibold text-zinc-400">—</p>
+								<p class="text-[11px] text-zinc-400">Set Lazada landed on all lines</p>
+							{/if}
+						{/if}
 					</div>
 				</li>
 			{/each}

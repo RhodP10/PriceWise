@@ -10,8 +10,12 @@
 	}: {
 		series: MonthlySeriesPoint[];
 		supplierCounts: Record<string, number>;
-		avgLanded: { lazada: number; shopee: number; local: number };
+		avgLanded: { lazada: number | null; shopee: number | null; local: number | null };
 	} = $props();
+
+	function fmtAvg(v: number | null): string {
+		return v === null ? '—' : `₱${v.toFixed(2)}`;
+	}
 
 	let lineCanvas = $state<HTMLCanvasElement | null>(null);
 	let doughnutCanvas = $state<HTMLCanvasElement | null>(null);
@@ -69,7 +73,10 @@
 				scales: {
 					y: {
 						ticks: {
-							callback: (v) => `₱${Number(v).toLocaleString()}`
+							callback: (tickValue) => {
+								const n = typeof tickValue === 'number' ? tickValue : Number(tickValue);
+								return `₱${Number.isFinite(n) ? n.toLocaleString() : tickValue}`;
+							}
 						}
 					}
 				}
@@ -80,8 +87,14 @@
 		const sh = supplierCounts.shopee ?? 0;
 		const loc = supplierCounts.local ?? 0;
 		const sum = lz + sh + loc;
-		const doughData = sum === 0 ? [1] : [lz, sh, loc];
-		const doughLabels = sum === 0 ? ['No wins yet'] : ['Lazada', 'Shopee', 'Local'];
+		const sliceDefs = [
+			{ label: 'Lazada', value: lz, color: '#0ea5e9' },
+			{ label: 'Shopee', value: sh, color: '#ea580c' },
+			{ label: 'Local', value: loc, color: '#059669' }
+		].filter((s) => s.value > 1e-6);
+		const doughLabels = sum < 1e-6 ? ['No wins yet'] : sliceDefs.map((s) => s.label);
+		const doughData = sum < 1e-6 ? [1] : sliceDefs.map((s) => s.value);
+		const doughColors = sum < 1e-6 ? ['#e4e4e7'] : sliceDefs.map((s) => s.color);
 
 		doughnutChart = new Chart(doughnutCanvas, {
 			type: 'doughnut',
@@ -89,8 +102,8 @@
 				labels: doughLabels,
 				datasets: [
 					{
-						data: sum === 0 ? [1] : doughData,
-						backgroundColor: sum === 0 ? ['#e4e4e7'] : ['#fb923c', '#f97316', '#10b981'],
+						data: doughData,
+						backgroundColor: doughColors,
 						borderWidth: 0
 					}
 				]
@@ -107,34 +120,41 @@
 	});
 </script>
 
-<div class="grid gap-4 lg:grid-cols-3">
-	<div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm lg:col-span-2">
-		<div class="h-72 w-full">
-			<canvas bind:this={lineCanvas} class="max-h-72"></canvas>
-		</div>
-	</div>
-	<div class="flex flex-col gap-4">
-		<div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-			<div class="h-56 w-full">
-				<canvas bind:this={doughnutCanvas} class="max-h-56"></canvas>
+<div class="glass overflow-hidden rounded-3xl shadow-xl">
+	<div class="grid divide-y divide-zinc-200/50 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+		<div class="p-5 sm:p-6 lg:col-span-2">
+			<p class="mb-3 text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly trend</p>
+			<div class="h-72 w-full min-h-[18rem]">
+				<canvas bind:this={lineCanvas} class="max-h-72"></canvas>
 			</div>
 		</div>
-		<div class="rounded-2xl border border-zinc-100 bg-zinc-50/80 p-4 text-sm">
-			<p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Avg landed pkg (₱)</p>
-			<dl class="mt-3 space-y-2 tabular-nums text-zinc-800">
-				<div class="flex justify-between gap-2">
-					<dt>Lazada</dt>
-					<dd>₱{avgLanded.lazada.toFixed(2)}</dd>
+		<div class="flex flex-col divide-y divide-zinc-200/50">
+			<div class="p-5 sm:p-6">
+				<p class="mb-3 text-[11px] font-bold uppercase tracking-wider text-zinc-500">Channel wins</p>
+				<div class="mx-auto h-52 w-full max-w-[220px]">
+					<canvas bind:this={doughnutCanvas} class="max-h-52"></canvas>
 				</div>
-				<div class="flex justify-between gap-2">
-					<dt>Shopee</dt>
-					<dd>₱{avgLanded.shopee.toFixed(2)}</dd>
-				</div>
-				<div class="flex justify-between gap-2">
-					<dt>Local</dt>
-					<dd>₱{avgLanded.local.toFixed(2)}</dd>
-				</div>
-			</dl>
+			</div>
+			<div class="bg-zinc-50/60 p-5 sm:p-6 text-sm">
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Avg landed package</p>
+				<dl class="mt-3 space-y-2.5 tabular-nums text-zinc-800">
+					<div class="flex justify-between gap-2">
+						<dt class="text-zinc-600">Lazada</dt>
+						<dd class="font-semibold text-sky-700">{fmtAvg(avgLanded.lazada)}</dd>
+					</div>
+					<div class="flex justify-between gap-2">
+						<dt class="text-zinc-600">Shopee</dt>
+						<dd class="font-semibold text-orange-700">{fmtAvg(avgLanded.shopee)}</dd>
+					</div>
+					<div class="flex justify-between gap-2">
+						<dt class="text-zinc-600">Local</dt>
+						<dd class="font-semibold text-emerald-700">{fmtAvg(avgLanded.local)}</dd>
+					</div>
+				</dl>
+				<p class="mt-3 text-[10px] leading-snug text-zinc-500">
+					Averages include only SKUs with an explicit landed price for that channel (see channel wins).
+				</p>
+			</div>
 		</div>
 	</div>
 </div>

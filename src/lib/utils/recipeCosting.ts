@@ -1,6 +1,17 @@
 import type { IngredientMasterDTO, OtherItemMasterDTO, RecipeDTO } from '$lib/types/recipe';
 import { convertQuantity } from '$lib/utils/unitConvert';
 
+type MarketplaceChannel = 'lazada' | 'shopee';
+
+function unitCostFromMarketplaceLanded(
+	m: IngredientMasterDTO | OtherItemMasterDTO,
+	ch: MarketplaceChannel
+): number | null {
+	const v = m.supplierChannelLanded?.[ch];
+	if (typeof v !== 'number' || v <= 0 || m.baseQuantity <= 0) return null;
+	return v / m.baseQuantity;
+}
+
 export function lineTotal(qty: number, costPerUnit: number): number {
 	return qty * costPerUnit;
 }
@@ -37,6 +48,35 @@ export function perOrderTotalCost(
 	return recipeIngredientSubtotal(recipe, ingredientMasters) + recipeOtherSubtotal(recipe, otherMasters);
 }
 
+/** COGS for one order using marketplace landed prices; null if any line is missing that channel. */
+export function perOrderTotalCostForMarketplace(
+	recipe: RecipeDTO,
+	ingredientMasters: IngredientMasterDTO[],
+	otherMasters: OtherItemMasterDTO[],
+	ch: MarketplaceChannel
+): number | null {
+	let sum = 0;
+	for (const line of recipe.ingredientLines) {
+		const m = ingredientMasters.find((x) => x.id === line.ingredientMasterId);
+		if (!m) return null;
+		const u = unitCostFromMarketplaceLanded(m, ch);
+		if (u === null) return null;
+		const qtyInMasterUnit = convertQuantity(line.quantity, line.unit, m.baseUnit);
+		if (qtyInMasterUnit === null) return null;
+		sum += qtyInMasterUnit * u;
+	}
+	for (const line of recipe.otherLines) {
+		const m = otherMasters.find((x) => x.id === line.otherMasterId);
+		if (!m) return null;
+		const u = unitCostFromMarketplaceLanded(m, ch);
+		if (u === null) return null;
+		const qtyInMasterUnit = convertQuantity(line.quantity, line.unit, m.baseUnit);
+		if (qtyInMasterUnit === null) return null;
+		sum += qtyInMasterUnit * u;
+	}
+	return sum;
+}
+
 export interface CostingSettingsInput {
 	vatRegistered: boolean;
 	vatPct: number;
@@ -66,6 +106,39 @@ export interface SpreadsheetCostingResult {
 	};
 }
 
+/** Target list price from total COGS and margin-on-revenue rule (same as spreadsheet “regular selling price”). */
+export function regularSellingPriceFromTotalCost(T: number, settings: CostingSettingsInput): number {
+	const margin = settings.targetMarginPct;
+	if (!Number.isFinite(T) || T < 0) return 0;
+	return margin >= 100 ? T : T / (1 - margin / 100);
+}
+
+/** Local + optional marketplace list prices; Shopee/Lazada stay 0 until every line has that channel’s landed price. */
+export function computeAutoSyncedRecipePricing(
+	recipe: RecipeDTO,
+	ingredientMasters: IngredientMasterDTO[],
+	otherMasters: OtherItemMasterDTO[],
+	settings: CostingSettingsInput
+): {
+	local: number;
+	shopee: number;
+	lazada: number;
+	cogsShopee: number | null;
+	cogsLazada: number | null;
+} {
+	const sheet = computeSpreadsheetCosting(recipe, ingredientMasters, otherMasters, settings);
+	const local = Math.round(sheet.perOrder.regularSellingPrice * 100) / 100;
+
+	const tShopee = perOrderTotalCostForMarketplace(recipe, ingredientMasters, otherMasters, 'shopee');
+	const tLazada = perOrderTotalCostForMarketplace(recipe, ingredientMasters, otherMasters, 'lazada');
+	const shopee =
+		tShopee === null ? 0 : Math.round(regularSellingPriceFromTotalCost(tShopee, settings) * 100) / 100;
+	const lazada =
+		tLazada === null ? 0 : Math.round(regularSellingPriceFromTotalCost(tLazada, settings) * 100) / 100;
+
+	return { local, shopee, lazada, cogsShopee: tShopee, cogsLazada: tLazada };
+}
+
 /** Mirrors spreadsheet: margin on selling price, optional VAT-inclusive breakdown, discount row */
 export function computeSpreadsheetCosting(
 	recipe: RecipeDTO,
@@ -78,8 +151,7 @@ export function computeSpreadsheetCosting(
 	const O = recipeOtherSubtotal(recipe, otherMasters);
 	const T = I + O;
 
-	const margin = settings.targetMarginPct;
-	const regularSellingPrice = margin >= 100 ? T : T / (1 - margin / 100);
+	const regularSellingPrice = regularSellingPriceFromTotalCost(T, settings);
 
 	let priceBeforeVAT: number;
 	let vatAmount: number;

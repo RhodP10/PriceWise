@@ -9,6 +9,7 @@
 		cancelWorkspacePersistDebounce,
 		clearInMemoryUserData,
 		isWorkspaceSaveEnabled,
+		pushWorkspaceNow,
 		scheduleWorkspacePersist
 	} from '$lib/state/userDataPersistence';
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
@@ -18,6 +19,7 @@
 	import { recipeStore } from '$lib/state/recipes.svelte';
 	import { summarySales } from '$lib/state/summarySales.svelte';
 	import { replaceMonthlySummariesFromApi } from '$lib/state/monthlySummaryStore.svelte';
+	import { hydrateUserPrefs, userPrefs } from '$lib/state/userPrefs.svelte';
 
 	const { children } = $props();
 
@@ -36,6 +38,17 @@
 	const showAppHeader = $derived(
 		!['/', '/login', '/register'].includes($page.url.pathname)
 	);
+
+	$effect(() => {
+		if (!browser) return;
+		hydrateUserPrefs();
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		void userPrefs.darkMode;
+		document.documentElement.classList.toggle('dark', userPrefs.darkMode);
+	});
 
 	$effect(() => {
 		hydrateAuthFromStorage();
@@ -62,7 +75,7 @@
 		hydratedUserId = id;
 		const tok = authState.token;
 		if (tok) {
-			void bootstrapUserWorkspace(id, tok);
+			void bootstrapUserWorkspace(tok);
 		} else {
 			replaceMonthlySummariesFromApi([]);
 		}
@@ -86,6 +99,25 @@
 		costingSettings.discountPct;
 		scheduleWorkspacePersist(tok);
 		return () => cancelWorkspacePersistDebounce();
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		function flushWorkspace(): void {
+			if (!isWorkspaceSaveEnabled()) return;
+			const tok = authState.token;
+			if (!tok) return;
+			void pushWorkspaceNow(tok);
+		}
+		const onVis = (): void => {
+			if (document.visibilityState === 'hidden') flushWorkspace();
+		};
+		window.addEventListener('pagehide', flushWorkspace);
+		document.addEventListener('visibilitychange', onVis);
+		return () => {
+			window.removeEventListener('pagehide', flushWorkspace);
+			document.removeEventListener('visibilitychange', onVis);
+		};
 	});
 
 	function logout(): void {

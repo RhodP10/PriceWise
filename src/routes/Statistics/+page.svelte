@@ -138,6 +138,28 @@
 		return `₱${n.toFixed(2)}`;
 	}
 
+	function fmtNumOrDash(n: number | null): string {
+		return n === null ? '—' : fmt(n);
+	}
+
+	function snapshotTotalOrders(d: MonthlyFinancialSnapshot): number {
+		return (d.recipeBreakdown ?? []).reduce((s, x) => s + x.orders, 0);
+	}
+
+	function snapshotCogs(d: MonthlyFinancialSnapshot): number {
+		return d.totalRevenue - d.grossProfit;
+	}
+
+	function snapshotGrossMarginPct(d: MonthlyFinancialSnapshot): string {
+		if (d.totalRevenue <= 0) return '—';
+		return `${((d.grossProfit / d.totalRevenue) * 100).toFixed(1)}%`;
+	}
+
+	function snapshotOpexPctOfRevenue(d: MonthlyFinancialSnapshot): string {
+		if (d.totalRevenue <= 0) return '—';
+		return `${((d.totalOpex / d.totalRevenue) * 100).toFixed(1)}%`;
+	}
+
 	function csvEscape(s: string): string {
 		if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
 		return s;
@@ -187,7 +209,7 @@
 				shopeeVsLazadaPct: shopeeVsLazada,
 				localVsLazadaPct: localVsLazada,
 				avgSuggestedPrice: avgSuggest,
-				avgLocalSelling: avgLocal
+				avgLocalSelling: avgLocal ?? 0
 			},
 			monthlySummaries: filteredRows
 		};
@@ -208,91 +230,99 @@
 	<title>Statistics — Pricewise</title>
 </svelte:head>
 
-<section class="statistics-print space-y-8 print:max-w-none">
-	<div class="flex flex-wrap items-end justify-between gap-4">
-		<div>
-			<h1 class="text-2xl font-semibold tracking-tight text-zinc-900">Statistics</h1>
-			<p class="mt-1 max-w-2xl text-sm text-zinc-500">
-				Monthly financials from your Summary inputs (orders × Local price, COGS, OPEX), supplier channel comparison on
-				ingredients, and saved month history.
-			</p>
-		</div>
-		<div class="flex flex-wrap gap-2 print:hidden">
-			<button
-				type="button"
-				class="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-				onclick={exportCsv}
-			>
-				Export CSV
-			</button>
-			<button
-				type="button"
-				class="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-				onclick={exportJsonSummary}
-			>
-				Download analytics JSON
-			</button>
-			<button
-				type="button"
-				class="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-				onclick={printReport}
-			>
-				Print / PDF
-			</button>
+<section class="statistics-print animate-in space-y-8 print:max-w-none">
+	<div class="relative overflow-hidden rounded-3xl bg-zinc-900 p-8 text-white shadow-2xl lg:p-12">
+		<div class="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-violet-500/20 blur-3xl"></div>
+		<div class="absolute -bottom-20 -left-20 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl"></div>
+
+		<div class="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+			<div class="max-w-3xl space-y-2">
+				<h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+					Statistics <span class="text-violet-400">Analytics</span>
+				</h1>
+				<p class="text-lg text-zinc-400">
+					Monthly financials from your Summary inputs (orders × Local price, COGS, OPEX), supplier channel mix on
+					ingredients, and saved month history.
+				</p>
+			</div>
+			<div class="flex flex-wrap gap-2 print:hidden">
+				<button
+					type="button"
+					class="rounded-2xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+					onclick={exportCsv}
+				>
+					Export CSV
+				</button>
+				<button
+					type="button"
+					class="rounded-2xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+					onclick={exportJsonSummary}
+				>
+					Analytics JSON
+				</button>
+				<button
+					type="button"
+					class="rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-900/30 transition hover:bg-violet-500"
+					onclick={printReport}
+				>
+					Print / PDF
+				</button>
+			</div>
 		</div>
 	</div>
 
-	<!-- KPI cards -->
-	<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-		<div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-			<p class="text-xs font-semibold uppercase text-zinc-500">Monthly OPEX</p>
-			<p class="mt-1 text-xl font-semibold tabular-nums text-zinc-900">{fmt(live.totalOpex)}</p>
-		</div>
-		<div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-			<p class="text-xs font-semibold uppercase text-zinc-500">Monthly revenue</p>
-			<p class="mt-1 text-xl font-semibold tabular-nums text-zinc-900">{fmt(live.totalRevenue)}</p>
-			{#if momRev !== null}
+	<div class="glass overflow-hidden rounded-3xl shadow-xl">
+		<div class="grid divide-y divide-zinc-200/50 sm:grid-cols-2 lg:grid-cols-5 lg:divide-x lg:divide-y-0">
+			<div class="px-5 py-5 sm:px-6">
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly OPEX</p>
+				<p class="mt-1 text-xl font-bold tabular-nums text-zinc-900">{fmt(live.totalOpex)}</p>
+			</div>
+			<div class="px-5 py-5 sm:px-6">
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly revenue</p>
+				<p class="mt-1 text-xl font-bold tabular-nums text-zinc-900">{fmt(live.totalRevenue)}</p>
+				{#if momRev !== null}
+					<p
+						class="mt-1 text-xs font-medium tabular-nums"
+						class:text-emerald-700={momRev >= 0}
+						class:text-red-600={momRev < 0}
+					>
+						{momRev >= 0 ? '▲' : '▼'} {Math.abs(momRev).toFixed(1)}% vs prior month
+					</p>
+				{/if}
+			</div>
+			<div class="px-5 py-5 sm:px-6">
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Gross profit</p>
+				<p class="mt-1 text-xl font-bold tabular-nums text-emerald-800">{fmt(live.grossProfit)}</p>
+			</div>
+			<div class="bg-emerald-50/50 px-5 py-5 sm:px-6">
+				<p class="text-[11px] font-bold uppercase tracking-wider text-emerald-900">Net profit</p>
 				<p
-					class="mt-1 text-xs font-medium tabular-nums"
-					class:text-emerald-700={momRev >= 0}
-					class:text-red-600={momRev < 0}
+					class="mt-1 text-xl font-bold tabular-nums"
+					class:text-red-700={live.netProfit < 0}
+					class:text-emerald-900={live.netProfit >= 0}
 				>
-					{momRev >= 0 ? '▲' : '▼'} {Math.abs(momRev).toFixed(1)}% vs prior month
+					{fmt(live.netProfit)}
 				</p>
-			{/if}
-		</div>
-		<div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-			<p class="text-xs font-semibold uppercase text-zinc-500">Gross profit</p>
-			<p class="mt-1 text-xl font-semibold tabular-nums text-emerald-800">{fmt(live.grossProfit)}</p>
-		</div>
-		<div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
-			<p class="text-xs font-semibold uppercase text-emerald-900">Net profit</p>
-			<p
-				class="mt-1 text-xl font-semibold tabular-nums"
-				class:text-red-700={live.netProfit < 0}
-				class:text-emerald-900={live.netProfit >= 0}
-			>
-				{fmt(live.netProfit)}
-			</p>
-			{#if momNet !== null}
+				{#if momNet !== null}
+					<p
+						class="mt-1 text-xs font-medium tabular-nums"
+						class:text-emerald-700={momNet >= 0}
+						class:text-red-600={momNet < 0}
+					>
+						{momNet >= 0 ? '▲' : '▼'} {Math.abs(momNet).toFixed(1)}% vs prior month
+					</p>
+				{/if}
+			</div>
+			<div class="px-5 py-5 sm:px-6 sm:col-span-2 lg:col-span-1">
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Profit margin</p>
 				<p
-					class="mt-1 text-xs font-medium tabular-nums"
-					class:text-emerald-700={momNet >= 0}
-					class:text-red-600={momNet < 0}
+					class="mt-1 text-xl font-bold tabular-nums"
+					class:text-red-700={live.profitMarginPct < 0}
+					class:text-emerald-900={live.profitMarginPct >= 0}
 				>
-					{momNet >= 0 ? '▲' : '▼'} {Math.abs(momNet).toFixed(1)}% vs prior month
+					{live.profitMarginPct.toFixed(1)}%
 				</p>
-			{/if}
-		</div>
-		<div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-			<p class="text-xs font-semibold uppercase text-zinc-500">Profit margin</p>
-			<p
-				class="mt-1 text-xl font-semibold tabular-nums"
-				class:text-red-700={live.profitMarginPct < 0}
-				class:text-emerald-900={live.profitMarginPct >= 0}
-			>
-				{live.profitMarginPct.toFixed(1)}%
-			</p>
+			</div>
 		</div>
 	</div>
 
@@ -302,35 +332,41 @@
 		<p class="text-sm text-zinc-500">Charts load in the browser.</p>
 	{/if}
 
-	<!-- Supplier analytics -->
-	<div class="grid gap-4 lg:grid-cols-3">
-		<div class="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm lg:col-span-1">
-			<p class="text-xs font-semibold uppercase text-emerald-800">Best supplier (SKUs)</p>
+	<div class="grid gap-6 lg:grid-cols-3">
+		<div
+			class="glass overflow-hidden rounded-3xl border border-emerald-200/50 bg-gradient-to-br from-emerald-50/90 to-white p-6 shadow-xl lg:col-span-1"
+		>
+			<p class="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Best supplier (SKUs)</p>
 			<p class="mt-2 text-2xl font-bold text-emerald-950">{bestSup}</p>
-			<p class="mt-2 text-xs text-emerald-900/80">
-				Counts which channel has the lowest landed package cost per ingredient (uses catalog triple or estimates).
+			<p class="mt-3 text-xs leading-relaxed text-emerald-900/85">
+				Per ingredient SKU: lowest landed cost wins. Lazada and Shopee count only when you enter marketplace landed prices;
+				otherwise only your local catalog package cost is compared.
 			</p>
 		</div>
-		<div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Channel insights</h2>
-			<ul class="mt-3 space-y-2 text-sm text-zinc-700">
-				<li>
+		<div class="glass overflow-hidden rounded-3xl p-6 shadow-xl lg:col-span-2">
+			<h2 class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Channel insights</h2>
+			<ul class="mt-4 space-y-3 text-sm leading-relaxed text-zinc-700">
+				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
 					{#if shopeeVsLazada !== null}
-						<strong>Shopee</strong> averages <span class="text-emerald-700">{shopeeVsLazada.toFixed(1)}%</span> cheaper
-						than <strong>Lazada</strong> on comparable SKUs (where Shopee wins on price).
+						<strong class="text-zinc-900">Shopee</strong> averages <span class="font-semibold text-emerald-700"
+							>{shopeeVsLazada.toFixed(1)}%</span
+						>
+						cheaper than <strong class="text-zinc-900">Lazada</strong> on comparable SKUs (where Shopee wins on price).
 					{:else}
-						Not enough Shopee &lt; Lazada pairs to compare averages.
+						Not enough Shopee vs Lazada pairs to compare averages yet.
 					{/if}
 				</li>
-				<li>
+				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
 					{#if localVsLazada !== null}
-						<strong>Local</strong> averages <span class="text-emerald-700">{localVsLazada.toFixed(1)}%</span> cheaper
-						than <strong>Lazada</strong> where Local undercuts Lazada.
+						<strong class="text-zinc-900">Local</strong> averages <span class="font-semibold text-emerald-700"
+							>{localVsLazada.toFixed(1)}%</span
+						>
+						cheaper than <strong class="text-zinc-900">Lazada</strong> where Local undercuts Lazada.
 					{:else}
 						Local vs Lazada comparison needs more SKU spread.
 					{/if}
 				</li>
-				<li>
+				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
 					Average savings vs most expensive channel per SKU:
 					<strong class="tabular-nums text-zinc-900"
 						>{(compares.reduce((s, c) => s + c.savingsVsWorstPct, 0) / Math.max(1, compares.length)).toFixed(1)}%</strong
@@ -340,57 +376,25 @@
 		</div>
 	</div>
 
-	<div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm print:hidden">
-		<table class="w-full min-w-[720px] text-left text-sm">
-			<thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-600">
-				<tr>
-					<th class="px-3 py-2 font-medium">Ingredient</th>
-					<th class="px-3 py-2 font-medium text-right">Catalog landed</th>
-					<th class="px-3 py-2 font-medium text-right">Lazada</th>
-					<th class="px-3 py-2 font-medium text-right">Shopee</th>
-					<th class="px-3 py-2 font-medium text-right">Local</th>
-					<th class="px-3 py-2 font-medium">Cheapest</th>
-					<th class="px-3 py-2 font-medium text-right">Save vs worst</th>
-				</tr>
-			</thead>
-			<tbody class="divide-y divide-zinc-100">
-				{#each compares as c (c.ingredientId)}
-					<tr class="hover:bg-zinc-50/80">
-						<td class="px-3 py-2 font-medium text-zinc-900">{c.name}</td>
-						<td class="px-3 py-2 text-right tabular-nums text-zinc-600">{fmt(c.catalogLanded)}</td>
-						<td class="px-3 py-2 text-right tabular-nums">{fmt(c.channels.lazada)}</td>
-						<td class="px-3 py-2 text-right tabular-nums">{fmt(c.channels.shopee)}</td>
-						<td class="px-3 py-2 text-right tabular-nums">{fmt(c.channels.local)}</td>
-						<td class="px-3 py-2 capitalize text-emerald-800">{c.cheapest}</td>
-						<td class="px-3 py-2 text-right tabular-nums font-medium text-emerald-800">
-							{c.savingsVsWorstPct.toFixed(1)}%
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
-
-	<!-- Recommendations -->
-	<div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-		<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Recommendation analytics</h2>
-		<div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-			<div>
-				<p class="text-xs text-zinc-500">Avg AI suggested price</p>
-				<p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900">{fmt(avgSuggest)}</p>
-				<p class="mt-0.5 text-[10px] text-zinc-400">From costing engine (margin / VAT / batch settings)</p>
+	<div class="glass overflow-hidden rounded-3xl p-6 shadow-xl sm:p-8">
+		<h2 class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Recommendation analytics</h2>
+		<div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
+				<p class="text-xs text-zinc-500">Avg suggested price</p>
+				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">{fmt(avgSuggest)}</p>
+				<p class="mt-1 text-[10px] text-zinc-400">From costing (margin / VAT / batch)</p>
 			</div>
-			<div>
+			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
 				<p class="text-xs text-zinc-500">Avg Local list price</p>
-				<p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900">{fmt(avgLocal)}</p>
+				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">{fmtNumOrDash(avgLocal)}</p>
 			</div>
-			<div>
+			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
 				<p class="text-xs text-zinc-500">Target markup (setting)</p>
-				<p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900">{costingSettings.targetMarginPct}%</p>
+				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">{costingSettings.targetMarginPct}%</p>
 			</div>
-			<div>
+			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
 				<p class="text-xs text-zinc-500">Cost pressure (est.)</p>
-				<p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900">
+				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">
 					{#if costTrendPct !== null}
 						<span class:text-red-600={costTrendPct > 0} class:text-emerald-700={costTrendPct <= 0}>
 							{costTrendPct > 0 ? '+' : ''}{costTrendPct.toFixed(1)}%
@@ -399,102 +403,120 @@
 						—
 					{/if}
 				</p>
-				<p class="mt-0.5 text-[10px] text-zinc-400">MoM implied COGS from chart series (est. months blended)</p>
+				<p class="mt-1 text-[10px] text-zinc-400">MoM implied COGS from chart series</p>
 			</div>
 		</div>
-		<p class="mt-4 text-xs leading-relaxed text-zinc-500">
-			<strong>Competitive pricing:</strong> compare avg Local ({fmt(avgLocal)}) to Shopee ({fmt(avgShopee)}) and Lazada ({fmt(
-				avgLazada
-			)}) recipe list prices — align channels with your target margin in recipe costing.
+		<p class="mt-6 text-xs leading-relaxed text-zinc-500">
+			<strong class="text-zinc-700">Competitive pricing:</strong> compare avg Local ({fmtNumOrDash(avgLocal)}) to Shopee ({fmtNumOrDash(
+				avgShopee
+			)}) and Lazada ({fmtNumOrDash(avgLazada)}) recipe list prices — Shopee/Lazada averages count only recipes with those
+			channels priced from marketplace landed costs.
 		</p>
 		{#if costTrendPct !== null && costTrendPct > 2}
-			<p class="mt-2 text-xs font-medium text-amber-800">
-				Predicted pressure: costs in the trend series are rising — consider refreshing supplier quotes or menu prices.
+			<p class="mt-3 rounded-xl bg-amber-50 px-4 py-2 text-xs font-medium text-amber-900 ring-1 ring-amber-100">
+				Costs in the trend series are rising — consider refreshing supplier quotes or menu prices.
 			</p>
 		{/if}
 	</div>
 
-	<!-- History -->
-	<div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-		<div class="flex flex-wrap items-end justify-between gap-4">
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Monthly summary history</h2>
-			<div class="flex flex-wrap gap-2 print:hidden">
-				<input
-					bind:value={search}
-					placeholder="Search month, supplier…"
-					class="min-w-[160px] rounded-lg border border-zinc-200 px-3 py-1.5 text-sm"
-				/>
-				<select bind:value={filterYear} class="rounded-lg border border-zinc-200 px-2 py-1.5 text-sm">
-					<option value="">All years</option>
-					{#each yearOptions as y}
-						<option value={y}>{y}</option>
-					{/each}
-				</select>
-				<select bind:value={filterMonth} class="rounded-lg border border-zinc-200 px-2 py-1.5 text-sm">
-					<option value="">All months</option>
-					{#each ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'] as m}
-						<option value={m}>{m}</option>
-					{/each}
-				</select>
+	<div class="glass overflow-hidden rounded-3xl shadow-xl">
+		<div class="border-b border-zinc-200/50 bg-zinc-50/50 px-6 py-5">
+			<div class="flex flex-wrap items-end justify-between gap-4">
+				<h2 class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly summary history</h2>
+				<div class="flex flex-wrap gap-2 print:hidden">
+					<div class="relative">
+						<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+						</div>
+						<input
+							bind:value={search}
+							placeholder="Search month, supplier…"
+							class="w-full min-w-[200px] rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+						/>
+					</div>
+					<select
+						bind:value={filterYear}
+						class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-violet-500"
+					>
+						<option value="">All years</option>
+						{#each yearOptions as y}
+							<option value={y}>{y}</option>
+						{/each}
+					</select>
+					<select
+						bind:value={filterMonth}
+						class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-violet-500"
+					>
+						<option value="">All months</option>
+						{#each ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'] as m}
+							<option value={m}>{m}</option>
+						{/each}
+					</select>
+				</div>
 			</div>
 		</div>
 
-		<div class="mt-4 overflow-x-auto">
+		<div class="overflow-x-auto">
 			<table class="w-full min-w-[960px] text-left text-sm">
-				<thead class="border-b border-zinc-200 bg-zinc-900 text-xs uppercase tracking-wide text-white">
-					<tr>
-						<th class="px-3 py-2 font-medium">Month</th>
-						<th class="px-3 py-2 font-medium text-right">OPEX</th>
-						<th class="px-3 py-2 font-medium text-right">Revenue</th>
-						<th class="px-3 py-2 font-medium text-right">Gross</th>
-						<th class="px-3 py-2 font-medium text-right">Net</th>
-						<th class="px-3 py-2 font-medium text-right">Margin %</th>
-						<th class="px-3 py-2 font-medium">Best supplier</th>
-						<th class="px-3 py-2 font-medium">Generated</th>
-						<th class="px-3 py-2 w-28 print:hidden"></th>
+				<thead>
+					<tr class="border-b border-zinc-200/50 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+						<th class="px-6 py-4">Month</th>
+						<th class="px-6 py-4 text-right">OPEX</th>
+						<th class="px-6 py-4 text-right">Revenue</th>
+						<th class="px-6 py-4 text-right">Gross</th>
+						<th class="px-6 py-4 text-right">Net</th>
+						<th class="px-6 py-4 text-right">Margin %</th>
+						<th class="px-6 py-4">Best supplier</th>
+						<th class="px-6 py-4">Generated</th>
+						<th class="w-28 px-6 py-4 print:hidden"></th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-zinc-100">
+				<tbody class="divide-y divide-zinc-100/50">
 					{#each filteredRows as r (r.id)}
-						<tr class="hover:bg-zinc-50/80">
-							<td class="px-3 py-2 font-medium text-zinc-900">{r.yearMonth}</td>
-							<td class="px-3 py-2 text-right tabular-nums">{fmt(r.totalOpex)}</td>
-							<td class="px-3 py-2 text-right tabular-nums">{fmt(r.totalRevenue)}</td>
-							<td class="px-3 py-2 text-right tabular-nums text-emerald-800">{fmt(r.grossProfit)}</td>
+						<tr class="transition-colors hover:bg-zinc-50/50">
+							<td class="px-6 py-3.5 font-semibold text-zinc-900">{r.yearMonth}</td>
+							<td class="px-6 py-3.5 text-right tabular-nums text-zinc-700">{fmt(r.totalOpex)}</td>
+							<td class="px-6 py-3.5 text-right tabular-nums text-zinc-700">{fmt(r.totalRevenue)}</td>
+							<td class="px-6 py-3.5 text-right tabular-nums text-emerald-800">{fmt(r.grossProfit)}</td>
 							<td
-								class="px-3 py-2 text-right tabular-nums font-medium"
+								class="px-6 py-3.5 text-right tabular-nums font-semibold"
 								class:text-red-600={r.netProfit < 0}
 								class:text-emerald-800={r.netProfit >= 0}
 							>
 								{fmt(r.netProfit)}
 							</td>
-							<td class="px-3 py-2 text-right tabular-nums">{r.profitMarginPct.toFixed(1)}%</td>
-							<td class="px-3 py-2">{r.bestSupplier}</td>
-							<td class="px-3 py-2 text-xs text-zinc-500">{new Date(r.generatedAt).toLocaleString()}</td>
-							<td class="px-3 py-2 print:hidden">
-								<button
-									type="button"
-									class="text-xs font-medium text-emerald-700 hover:underline"
-									onclick={() => (detail = r)}
-								>
-									View
-								</button>
-								<button
-									type="button"
-									class="ml-2 text-xs font-medium text-red-600 hover:underline"
-									onclick={() => requestDeleteSnapshot(r)}
-								>
-									Delete
-								</button>
+							<td class="px-6 py-3.5 text-right tabular-nums">{r.profitMarginPct.toFixed(1)}%</td>
+							<td class="px-6 py-3.5 text-zinc-700">{r.bestSupplier}</td>
+							<td class="px-6 py-3.5 text-xs text-zinc-500">{new Date(r.generatedAt).toLocaleString()}</td>
+							<td class="px-6 py-3.5 print:hidden">
+								<div class="flex flex-col items-end gap-1">
+									<button
+										type="button"
+										class="text-xs font-semibold text-violet-700 hover:underline"
+										onclick={() => (detail = r)}
+									>
+										View
+									</button>
+									<button
+										type="button"
+										class="text-xs font-semibold text-red-600 hover:underline"
+										onclick={() => requestDeleteSnapshot(r)}
+									>
+										Delete
+									</button>
+								</div>
 							</td>
 						</tr>
 					{/each}
 				</tbody>
 			</table>
 			{#if filteredRows.length === 0}
-				<p class="py-10 text-center text-sm text-zinc-500">
-					No saved rows match. Use <strong>Save Summary to Statistics</strong> to add this month.
-				</p>
+				<div class="flex flex-col items-center justify-center py-16 text-center">
+					<p class="text-sm font-medium text-zinc-700">No saved rows match.</p>
+					<p class="mt-1 text-sm text-zinc-500">
+						Use <strong class="text-zinc-800">Save Summary to Statistics</strong> on the Summary page to add a month.
+					</p>
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -509,35 +531,115 @@
 		tabindex="-1"
 		onmousedown={(e) => e.target === e.currentTarget && (detail = null)}
 	>
-		<div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl">
+		<div
+			class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xl ring-1 ring-black/5 sm:max-w-2xl sm:p-8"
+		>
 			<div class="flex items-start justify-between gap-2">
 				<h3 class="text-lg font-semibold text-zinc-900">Month {detail.yearMonth}</h3>
 				<button type="button" class="text-zinc-500 hover:text-zinc-800" onclick={() => (detail = null)} aria-label="Close"
 					>×</button
 				>
 			</div>
-			<dl class="mt-4 space-y-2 text-sm">
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">OPEX</dt><dd class="tabular-nums">{fmt(detail.totalOpex)}</dd></div>
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">Revenue</dt><dd class="tabular-nums">{fmt(detail.totalRevenue)}</dd></div>
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">Gross profit</dt><dd class="tabular-nums">{fmt(detail.grossProfit)}</dd></div>
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">Net profit</dt><dd class="tabular-nums font-medium">{fmt(detail.netProfit)}</dd></div>
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">Margin</dt><dd class="tabular-nums">{detail.profitMarginPct.toFixed(1)}%</dd></div>
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">Best supplier</dt><dd>{detail.bestSupplier}</dd></div>
-				<div class="flex justify-between gap-4"><dt class="text-zinc-500">Generated</dt><dd class="text-xs">{new Date(detail.generatedAt).toLocaleString()}</dd></div>
-			</dl>
+			<p class="mt-2 text-xs leading-relaxed text-zinc-500">
+				Financial figures are the saved snapshot for <strong class="text-zinc-700">{detail.yearMonth}</strong>. “Best supplier”
+				below matches your <strong class="text-zinc-700">current</strong> ingredient catalog (same logic as Analytics — Lazada/Shopee
+				only when those landed prices exist).
+			</p>
+			<div class="mt-6 grid gap-x-8 gap-y-1 sm:grid-cols-2">
+				<dl class="space-y-2 text-sm">
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">OPEX</dt>
+						<dd class="tabular-nums font-medium text-zinc-900">{fmt(detail.totalOpex)}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Revenue</dt>
+						<dd class="tabular-nums font-medium text-zinc-900">{fmt(detail.totalRevenue)}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">COGS (est.)</dt>
+						<dd class="tabular-nums text-zinc-800">{fmt(snapshotCogs(detail))}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Gross profit</dt>
+						<dd class="tabular-nums text-emerald-800">{fmt(detail.grossProfit)}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Net profit</dt>
+						<dd
+							class="tabular-nums font-semibold"
+							class:text-red-600={detail.netProfit < 0}
+							class:text-emerald-800={detail.netProfit >= 0}
+						>
+							{fmt(detail.netProfit)}
+						</dd>
+					</div>
+				</dl>
+				<dl class="space-y-2 text-sm">
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Gross margin</dt>
+						<dd class="tabular-nums">{snapshotGrossMarginPct(detail)}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Net margin (saved)</dt>
+						<dd class="tabular-nums">{detail.profitMarginPct.toFixed(1)}%</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">OPEX ÷ revenue</dt>
+						<dd class="tabular-nums">{snapshotOpexPctOfRevenue(detail)}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Total orders (saved)</dt>
+						<dd class="tabular-nums">{snapshotTotalOrders(detail)}</dd>
+					</div>
+					<div class="flex justify-between gap-4">
+						<dt class="text-zinc-500">Recipes w/ orders</dt>
+						<dd class="tabular-nums">{detail.recipeBreakdown?.length ?? 0}</dd>
+					</div>
+				</dl>
+			</div>
+			<div class="mt-4 flex justify-between gap-4 border-t border-zinc-100 pt-4 text-sm">
+				<span class="text-zinc-500">Best supplier (catalog)</span>
+				<span class="text-right font-medium text-zinc-900">{bestSup}</span>
+			</div>
+			{#if detail.bestSupplier !== bestSup}
+				<p class="mt-1 text-[10px] leading-relaxed text-zinc-400">
+					Label stored with this snapshot: {detail.bestSupplier} (re-save from Summary to update the stored label).
+				</p>
+			{/if}
+			<div class="mt-2 flex justify-between gap-4 text-xs text-zinc-500">
+				<span>Generated</span>
+				<span class="text-right">{new Date(detail.generatedAt).toLocaleString()}</span>
+			</div>
 			{#if detail.recipeBreakdown && detail.recipeBreakdown.length > 0}
 				<div class="mt-6 border-t border-zinc-100 pt-4">
-					<h4 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Recipes with orders (saved)</h4>
-					<ul class="mt-3 max-h-52 space-y-2 overflow-y-auto text-sm">
+					<h4 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Per-recipe performance (saved)</h4>
+					<ul class="mt-3 max-h-56 space-y-2 overflow-y-auto text-sm">
 						{#each detail.recipeBreakdown as line}
-							<li class="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2">
-								<span class="font-medium text-zinc-900">{line.recipeName}</span>
-								<span class="tabular-nums text-zinc-600">
-									{line.orders} orders · {fmt(line.revenue)} rev · {fmt(line.profit)} profit
-								</span>
+							<li class="rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2.5">
+								<div class="flex flex-wrap items-baseline justify-between gap-2">
+									<span class="font-semibold text-zinc-900">{line.recipeName}</span>
+									<span class="tabular-nums text-xs font-medium text-violet-700">{line.orders} orders</span>
+								</div>
+								<div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600">
+									<span>Revenue <span class="font-medium text-zinc-800">{fmt(line.revenue)}</span></span>
+									<span>Profit <span class="font-medium text-zinc-800">{fmt(line.profit)}</span></span>
+									{#if line.orders > 0}
+										<span
+											>Avg / order <span class="font-medium text-zinc-800">{fmt(line.revenue / line.orders)}</span></span
+										>
+									{/if}
+								</div>
 							</li>
 						{/each}
 					</ul>
+				</div>
+			{:else}
+				<div class="mt-6 border-t border-zinc-100 pt-4">
+					<h4 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Per-recipe performance</h4>
+					<p class="mt-2 text-sm text-zinc-600">
+						No per-recipe rows were stored (all monthly orders were zero or the snapshot predates recipe breakdown). Revenue
+						and COGS lines still reflect the saved totals above.
+					</p>
 				</div>
 			{/if}
 		</div>

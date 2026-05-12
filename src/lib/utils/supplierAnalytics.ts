@@ -5,8 +5,10 @@ export interface IngredientSupplierCompare {
 	ingredientId: string;
 	name: string;
 	catalogLanded: number;
-	channels: { lazada: number; shopee: number; local: number };
-	cheapest: SupplierChannel;
+	/** Lazada/Shopee are null when no explicit marketplace landed price is entered (> 0). */
+	channels: { lazada: number | null; shopee: number | null; local: number };
+	/** Channels tied at the minimum among comparable prices (each gets equal win credit). */
+	tiedWinners: SupplierChannel[];
 	savingsVsWorstPct: number;
 }
 
@@ -15,34 +17,34 @@ function packageLandedLocal(m: IngredientMasterDTO): number {
 	return m.packagePrice + m.shippingFee;
 }
 
-/** Effective landed ₱ per channel; missing marketplace values fall back to local package for comparison. */
-function channelPackagePeso(m: IngredientMasterDTO, ch: SupplierChannel): number {
-	const local = packageLandedLocal(m);
-	if (ch === 'local') return local;
-	const v = m.supplierChannelLanded?.[ch] ?? 0;
-	return v > 0 ? v : local;
+function explicitMarketplaceLanded(m: IngredientMasterDTO, ch: 'lazada' | 'shopee'): number | null {
+	const v = m.supplierChannelLanded?.[ch];
+	return typeof v === 'number' && v > 0 ? v : null;
 }
 
 export function buildIngredientSupplierCompares(items: IngredientMasterDTO[]): IngredientSupplierCompare[] {
 	return items.map((m) => {
 		const catalogLanded = packageLandedLocal(m);
-		const lazada = channelPackagePeso(m, 'lazada');
-		const shopee = channelPackagePeso(m, 'shopee');
-		const local = channelPackagePeso(m, 'local');
-		const prices = [
-			{ ch: 'lazada' as const, v: lazada },
-			{ ch: 'shopee' as const, v: shopee },
-			{ ch: 'local' as const, v: local }
-		];
-		const max = Math.max(lazada, shopee, local);
-		const minEntry = prices.reduce((a, b) => (b.v < a.v ? b : a));
-		const savingsVsWorstPct = max > 0 ? ((max - minEntry.v) / max) * 100 : 0;
+		const lazada = explicitMarketplaceLanded(m, 'lazada');
+		const shopee = explicitMarketplaceLanded(m, 'shopee');
+		const local = catalogLanded;
+
+		const candidates: { ch: SupplierChannel; v: number }[] = [{ ch: 'local', v: local }];
+		if (lazada !== null) candidates.push({ ch: 'lazada', v: lazada });
+		if (shopee !== null) candidates.push({ ch: 'shopee', v: shopee });
+
+		const values = candidates.map((c) => c.v);
+		const minV = Math.min(...values);
+		const maxV = Math.max(...values);
+		const tiedWinners = candidates.filter((c) => c.v === minV).map((c) => c.ch);
+		const savingsVsWorstPct = maxV > 0 ? ((maxV - minV) / maxV) * 100 : 0;
+
 		return {
 			ingredientId: m.id,
 			name: m.name,
 			catalogLanded,
 			channels: { lazada, shopee, local },
-			cheapest: minEntry.ch,
+			tiedWinners,
 			savingsVsWorstPct
 		};
 	});
@@ -51,36 +53,59 @@ export function buildIngredientSupplierCompares(items: IngredientMasterDTO[]): I
 export function supplierWinCounts(items: IngredientMasterDTO[]): Record<string, number> {
 	const counts: Record<string, number> = { lazada: 0, shopee: 0, local: 0 };
 	for (const row of buildIngredientSupplierCompares(items)) {
-		counts[row.cheapest] = (counts[row.cheapest] ?? 0) + 1;
+		const n = row.tiedWinners.length;
+		if (n === 0) continue;
+		const add = 1 / n;
+		for (const ch of row.tiedWinners) {
+			counts[ch] = (counts[ch] ?? 0) + add;
+		}
 	}
 	return counts;
 }
 
-/** Label for snapshot row — channel name with the most “cheapest SKU” wins. */
+/** Label for snapshot row — channel name(s) with the highest “cheapest SKU” win score (ties shown as “A / B”). */
 export function bestSupplierLabel(items: IngredientMasterDTO[]): string {
 	const counts = supplierWinCounts(items);
-	const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-	if (entries.length === 0 || entries[0]![1] === 0) return '—';
-	const label = entries[0]![0];
-	return label.charAt(0).toUpperCase() + label.slice(1);
+	const entries = Object.entries(counts)
+		.filter(([, v]) => v > 1e-6)
+		.sort((a, b) => b[1] - a[1]);
+	if (entries.length === 0) return '—';
+	const top = entries[0]![1];
+	const tops = entries.filter(([, v]) => Math.abs(v - top) < 1e-6).map(([k]) => k);
+	return tops.map((k) => k.charAt(0).toUpperCase() + k.slice(1)).join(' / ');
 }
 
 export function avgLandedByChannel(compares: IngredientSupplierCompare[]): {
-	lazada: number;
-	shopee: number;
-	local: number;
+	lazada: number | null;
+	shopee: number | null;
+	local: number | null;
 } {
-	if (compares.length === 0) return { lazada: 0, shopee: 0, local: 0 };
+	if (compares.length === 0) return { lazada: null, shopee: null, local: null };
 	let lz = 0;
+	let lzN = 0;
 	let sh = 0;
+	let shN = 0;
 	let loc = 0;
+	let locN = 0;
 	for (const c of compares) {
-		lz += c.channels.lazada;
-		sh += c.channels.shopee;
-		loc += c.channels.local;
+		if (c.channels.lazada !== null) {
+			lz += c.channels.lazada;
+			lzN++;
+		}
+		if (c.channels.shopee !== null) {
+			sh += c.channels.shopee;
+			shN++;
+		}
+		if (c.channels.local > 0) {
+			loc += c.channels.local;
+			locN++;
+		}
 	}
-	const n = compares.length;
-	return { lazada: lz / n, shopee: sh / n, local: loc / n };
+	return {
+		lazada: lzN > 0 ? lz / lzN : null,
+		shopee: shN > 0 ? sh / shN : null,
+		local: locN > 0 ? loc / locN : null
+	};
 }
 
 /**
@@ -96,7 +121,7 @@ export function avgPctCheaperThan(
 	for (const c of compares) {
 		const w = c.channels[winner];
 		const l = c.channels[loser];
-		if (l <= 0 || w >= l) continue;
+		if (w === null || l === null || l <= 0 || w >= l) continue;
 		pcts.push(((l - w) / l) * 100);
 	}
 	if (pcts.length === 0) return null;
