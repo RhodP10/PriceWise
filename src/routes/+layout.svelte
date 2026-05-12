@@ -1,0 +1,139 @@
+<script lang="ts">
+	import './layout.css';
+	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { authState, clearAuth, fetchMe, hydrateAuthFromStorage } from '$lib/state/auth.svelte';
+	import {
+		clearInMemoryUserData,
+		loadUserData,
+		persistUserData
+	} from '$lib/state/userDataPersistence';
+	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
+	import { opexStore } from '$lib/state/opexStore.svelte';
+	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
+	import { recipeStore } from '$lib/state/recipes.svelte';
+	import { summarySales } from '$lib/state/summarySales.svelte';
+	import { monthlySummaryStore } from '$lib/state/monthlySummaryStore.svelte';
+
+	const { children } = $props();
+
+	/** Only hydrate from localStorage when the logged-in user id changes — not on every `fetchMe()` profile refresh (same id), which would overwrite in-memory stores before persist runs. */
+	let hydratedUserId = $state<number | null>(null);
+
+	const links = [
+		{ href: '/recipes', label: 'Recipes' },
+		{ href: '/Ingredients', label: 'Ingredients' },
+		{ href: '/Others', label: 'Others' },
+		{ href: '/Opex', label: 'OPEX' },
+		{ href: '/Summary', label: 'Summary' },
+		{ href: '/Statistics', label: 'Statistics' }
+	];
+
+	const showAppHeader = $derived(
+		!['/', '/login', '/register'].includes($page.url.pathname)
+	);
+
+	$effect(() => {
+		hydrateAuthFromStorage();
+		if (authState.token) void fetchMe();
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		const publicPaths = ['/', '/login', '/register'];
+		const path = $page.url.pathname;
+		if (!publicPaths.includes(path) && !authState.token) {
+			void goto('/login');
+		}
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		const id = authState.user?.id ?? null;
+		if (id === null) {
+			hydratedUserId = null;
+			return;
+		}
+		if (hydratedUserId === id) return;
+		hydratedUserId = id;
+		loadUserData(id);
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		if (!authState.user?.id) return;
+		recipeStore.recipes;
+		ingredientCatalog.items;
+		otherCatalog.items;
+		opexStore.lines;
+		summarySales.ordersPerMonthByRecipeId;
+		monthlySummaryStore.rows;
+		persistUserData(authState.user.id);
+	});
+
+	function logout(): void {
+		clearAuth();
+		clearInMemoryUserData();
+		void goto('/login');
+	}
+</script>
+
+<div class="min-h-screen bg-zinc-100 text-zinc-900 antialiased">
+	{#if showAppHeader}
+		<header
+			class="sticky top-0 z-40 border-b border-emerald-200 bg-emerald-50/95 backdrop-blur-md supports-backdrop-filter:bg-emerald-50/80"
+		>
+			<div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+				<a href="/recipes" class="text-lg font-semibold tracking-tight text-emerald-900">Pricewise</a>
+				<nav class="flex flex-wrap gap-1 rounded-xl bg-emerald-100 p-1" aria-label="Main">
+					{#each links as link}
+						<a
+							href={link.href}
+							class={[
+								'rounded-lg px-3 py-2 text-sm font-medium transition',
+								$page.url.pathname === link.href
+									? 'bg-emerald-600 text-white shadow-sm'
+									: 'text-emerald-900 hover:bg-emerald-200'
+							].join(' ')}
+						>
+							{link.label}
+						</a>
+					{/each}
+				</nav>
+				<div class="flex flex-wrap items-center justify-end gap-2">
+					{#if authState.user}
+						<span class="max-w-[140px] truncate text-xs text-emerald-900 sm:max-w-[220px]" title={authState.user.email}
+							>{authState.user.email}</span
+						>
+						<a
+							href="/settings"
+							class={[
+								'rounded-xl border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur-sm transition',
+								$page.url.pathname === '/settings'
+									? 'border-emerald-600 bg-emerald-600 text-white'
+									: 'border-emerald-600/25 bg-white/70 text-emerald-900 hover:bg-white dark:border-emerald-500/30 dark:bg-zinc-900/60 dark:text-emerald-100 dark:hover:bg-zinc-800'
+							].join(' ')}
+						>
+							Settings
+						</a>
+						<button
+							type="button"
+							class="rounded-xl border border-emerald-700/30 bg-emerald-600/10 px-3 py-1.5 text-xs font-semibold text-emerald-900 backdrop-blur-sm hover:bg-emerald-600/15 dark:border-emerald-400/25 dark:text-emerald-100 dark:hover:bg-emerald-950/40"
+							onclick={logout}
+						>
+							Logout
+						</button>
+					{:else}
+						<a href="/login" class="rounded-lg border border-emerald-500 px-2 py-1 text-xs text-emerald-800">Login</a>
+						<a href="/register" class="rounded-lg border border-emerald-500 px-2 py-1 text-xs text-emerald-800">Register</a>
+					{/if}
+				</div>
+			</div>
+		</header>
+	{/if}
+
+	<main class="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+		{@render children()}
+	</main>
+</div>
