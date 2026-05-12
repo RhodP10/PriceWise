@@ -20,6 +20,7 @@
 	import { summarySales } from '$lib/state/summarySales.svelte';
 	import { replaceMonthlySummariesFromApi } from '$lib/state/monthlySummaryStore.svelte';
 	import { hydrateUserPrefs, userPrefs } from '$lib/state/userPrefs.svelte';
+	import RecipePricingSync from '$lib/components/recipes/RecipePricingSync.svelte';
 
 	const { children } = $props();
 
@@ -128,6 +129,7 @@
 </script>
 
 <div class="min-h-screen bg-zinc-100 text-zinc-900 antialiased">
+	<RecipePricingSync />
 	{#if showAppHeader}
 		<header
 			class="sticky top-0 z-40 border-b border-emerald-200 bg-emerald-50/95 backdrop-blur-md supports-backdrop-filter:bg-emerald-50/80"

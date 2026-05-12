@@ -1,4 +1,9 @@
-import type { IngredientMasterDTO, OtherItemMasterDTO, RecipeDTO } from '$lib/types/recipe';
+import type {
+	IngredientMasterDTO,
+	OtherItemMasterDTO,
+	RecipeDTO,
+	RecipePricingDTO
+} from '$lib/types/recipe';
 import { convertQuantity } from '$lib/utils/unitConvert';
 
 type MarketplaceChannel = 'lazada' | 'shopee';
@@ -77,6 +82,56 @@ export function perOrderTotalCostForMarketplace(
 	return sum;
 }
 
+export type RecipeMarketSavingsChannel = 'lazada' | 'shopee';
+
+/**
+ * Compare catalog (local package) COGS vs Shopee/Lazada landed COGS from scraped marketplace prices.
+ * A channel counts only when every ingredient and “other” line has that channel’s landed package total filled in.
+ */
+export function computeRecipeMarketIngredientSavingsVsCatalog(
+	recipe: RecipeDTO,
+	ingredientMasters: IngredientMasterDTO[],
+	otherMasters: OtherItemMasterDTO[]
+): {
+	localCogs: number;
+	shopeeCogs: number | null;
+	lazadaCogs: number | null;
+	/** Per-order ingredient savings when the cheapest covered marketplace beats catalog COGS. */
+	savedPerOrder: number | null;
+	bestMarketplace: RecipeMarketSavingsChannel | null;
+} {
+	const localCogs = perOrderTotalCost(recipe, ingredientMasters, otherMasters);
+	const shopeeCogs = perOrderTotalCostForMarketplace(recipe, ingredientMasters, otherMasters, 'shopee');
+	const lazadaCogs = perOrderTotalCostForMarketplace(recipe, ingredientMasters, otherMasters, 'lazada');
+
+	const market: { ch: RecipeMarketSavingsChannel; cogs: number }[] = [];
+	if (lazadaCogs !== null) market.push({ ch: 'lazada', cogs: lazadaCogs });
+	if (shopeeCogs !== null) market.push({ ch: 'shopee', cogs: shopeeCogs });
+
+	if (market.length === 0) {
+		return { localCogs, shopeeCogs, lazadaCogs, savedPerOrder: null, bestMarketplace: null };
+	}
+
+	let best = market[0]!;
+	for (const m of market.slice(1)) {
+		if (m.cogs < best.cogs - 1e-9) best = m;
+		else if (Math.abs(m.cogs - best.cogs) < 1e-9 && m.ch === 'lazada') best = m;
+	}
+
+	if (best.cogs >= localCogs - 1e-9) {
+		return { localCogs, shopeeCogs, lazadaCogs, savedPerOrder: null, bestMarketplace: null };
+	}
+
+	const savedPerOrder = Math.round((localCogs - best.cogs) * 100) / 100;
+	return {
+		localCogs,
+		shopeeCogs,
+		lazadaCogs,
+		savedPerOrder: savedPerOrder > 0 ? savedPerOrder : null,
+		bestMarketplace: best.ch
+	};
+}
+
 export interface CostingSettingsInput {
 	vatRegistered: boolean;
 	vatPct: number;
@@ -111,6 +166,20 @@ export function regularSellingPriceFromTotalCost(T: number, settings: CostingSet
 	const margin = settings.targetMarginPct;
 	if (!Number.isFinite(T) || T < 0) return 0;
 	return margin >= 100 ? T : T / (1 - margin / 100);
+}
+
+const PRICE_EPS = 0.005;
+
+/** True when stored recipe list prices already match auto-sync from catalog + settings. */
+export function recipePricingMatchesSuggested(
+	current: RecipePricingDTO,
+	suggested: Pick<RecipePricingDTO, 'local' | 'shopee' | 'lazada'>
+): boolean {
+	return (
+		Math.abs(current.local - suggested.local) < PRICE_EPS &&
+		Math.abs(current.shopee - suggested.shopee) < PRICE_EPS &&
+		Math.abs(current.lazada - suggested.lazada) < PRICE_EPS
+	);
 }
 
 /** Local + optional marketplace list prices; Shopee/Lazada stay 0 until every line has that channel’s landed price. */

@@ -2,8 +2,6 @@
 	import type { IngredientMasterDTO, OtherItemMasterDTO, RecipeDTO } from '$lib/types/recipe';
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { computeSpreadsheetCosting, computeAutoSyncedRecipePricing, marginPercentAtPrice } from '$lib/utils/recipeCosting';
-	import { updateRecipePricing } from '$lib/state/recipes.svelte';
-	import { untrack } from 'svelte';
 	import { fade } from 'svelte/transition';
 
 	const LOW_MARGIN_PCT = 15;
@@ -83,29 +81,6 @@
 	);
 
 	const chartCostPct = $derived(sell > 0 ? Math.min(100, (cogs / sell) * 100) : 0);
-
-	$effect(() => {
-		const next = computeAutoSyncedRecipePricing(recipe, ingredientMasters, otherMasters, {
-			vatRegistered: costingSettings.vatRegistered,
-			vatPct: costingSettings.vatPct,
-			batchSize: costingSettings.batchSize,
-			targetMarginPct: costingSettings.targetMarginPct,
-			discountPct: costingSettings.discountPct
-		});
-		const cur = untrack(() => recipe.pricing);
-		if (
-			Math.abs(cur.local - next.local) < 0.005 &&
-			Math.abs(cur.shopee - next.shopee) < 0.005 &&
-			Math.abs(cur.lazada - next.lazada) < 0.005
-		) {
-			return;
-		}
-		updateRecipePricing(recipe.id, {
-			local: next.local,
-			shopee: next.shopee,
-			lazada: next.lazada
-		});
-	});
 
 	function fmt(n: number): string {
 		return `₱${n.toFixed(2)}`;

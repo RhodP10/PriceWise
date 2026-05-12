@@ -13,16 +13,10 @@
 		deleteRecipeOtherLine,
 		updateRecipeIngredientLine,
 		updateRecipeName,
-		updateRecipeOtherLine,
-		updateRecipePricing
+		updateRecipeOtherLine
 	} from '$lib/state/recipes.svelte';
 	import { convertQuantity } from '$lib/utils/unitConvert';
-	import {
-		computeAutoSyncedRecipePricing,
-		recipeIngredientSubtotal,
-		recipeOtherSubtotal
-	} from '$lib/utils/recipeCosting';
-	import { untrack } from 'svelte';
+	import { recipeIngredientSubtotal, recipeOtherSubtotal } from '$lib/utils/recipeCosting';
 
 	const {
 		recipe,
@@ -213,41 +207,6 @@
 		return { kind: 'other', name: m.name, baseUnit: m.baseUnit, unitCost: m.unitCost, lineCost, qtyOk };
 	});
 
-	/** Keep channel prices in sync with costing settings while editing lines (same logic as costing panel). */
-	$effect(() => {
-		if (!open || !recipe) return;
-		void recipe.ingredientLines;
-		void recipe.otherLines;
-		void recipe.pricing;
-		void costingSettings.vatRegistered;
-		void costingSettings.vatPct;
-		void costingSettings.batchSize;
-		void costingSettings.targetMarginPct;
-		void costingSettings.discountPct;
-		void masters;
-		void otherMasters;
-		const settings = {
-			vatRegistered: costingSettings.vatRegistered,
-			vatPct: costingSettings.vatPct,
-			batchSize: costingSettings.batchSize,
-			targetMarginPct: costingSettings.targetMarginPct,
-			discountPct: costingSettings.discountPct
-		};
-		const next = computeAutoSyncedRecipePricing(recipe, masters, otherMasters, settings);
-		const cur = untrack(() => recipe.pricing);
-		if (
-			Math.abs(cur.local - next.local) < 0.005 &&
-			Math.abs(cur.shopee - next.shopee) < 0.005 &&
-			Math.abs(cur.lazada - next.lazada) < 0.005
-		) {
-			return;
-		}
-		updateRecipePricing(recipe.id, {
-			local: next.local,
-			shopee: next.shopee,
-			lazada: next.lazada
-		});
-	});
 </script>
 
 <svelte:window onkeydown={open ? onKeydown : undefined} />

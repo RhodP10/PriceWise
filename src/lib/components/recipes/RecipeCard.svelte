@@ -2,7 +2,11 @@
 	import type { RecipeDTO } from '$lib/types/recipe';
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
-	import { perOrderTotalCost } from '$lib/utils/recipeCosting';
+	import {
+		perOrderTotalCost,
+		computeRecipeMarketIngredientSavingsVsCatalog,
+		type RecipeMarketSavingsChannel
+	} from '$lib/utils/recipeCosting';
 
 	const {
 		recipe,
@@ -18,6 +22,13 @@
 	const otherMasters = $derived(otherCatalog.items);
 	const unitLoaded = $derived(perOrderTotalCost(recipe, masters, otherMasters));
 	const linesCount = $derived(recipe.ingredientLines.length + recipe.otherLines.length);
+	const ingSavings = $derived.by(() =>
+		computeRecipeMarketIngredientSavingsVsCatalog(recipe, masters, otherMasters)
+	);
+
+	function marketLabel(ch: RecipeMarketSavingsChannel): string {
+		return ch === 'lazada' ? 'Lazada' : 'Shopee';
+	}
 
 	function fmtListPrice(ch: 'local' | 'shopee' | 'lazada'): string {
 		const v = recipe.pricing[ch];
@@ -75,6 +86,30 @@
 					<p class="text-[10px] font-bold uppercase tracking-wider text-sky-600">Lazada</p>
 					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('lazada')}</p>
 				</div>
+			</div>
+
+			<div
+				class="rounded-xl border border-zinc-200/80 bg-white/70 px-3 py-2.5 text-left shadow-inner ring-1 ring-zinc-100/80"
+				title="Ingredient COGS for one order: catalog (local package) vs Shopee/Lazada only when landed prices exist on every line in this recipe."
+			>
+				<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Saved</p>
+				{#if linesCount === 0}
+					<p class="mt-0.5 text-xs text-zinc-500">Add lines to compare sourcing.</p>
+				{:else if ingSavings.savedPerOrder !== null && ingSavings.bestMarketplace}
+					<p class="mt-0.5 text-sm font-bold tabular-nums text-emerald-700">
+						₱{ingSavings.savedPerOrder.toFixed(2)}
+						<span class="text-[11px] font-semibold text-zinc-600">
+							/ order vs catalog on {marketLabel(ingSavings.bestMarketplace)} landed</span
+						>
+					</p>
+				{:else if ingSavings.shopeeCogs === null && ingSavings.lazadaCogs === null}
+					<p class="mt-0.5 text-xs leading-snug text-zinc-600">
+						Enter <span class="font-medium text-zinc-800">Shopee / Lazada landed package</span> totals on every ingredient
+						&amp; other used here to compare with local catalog COGS.
+					</p>
+				{:else}
+					<p class="mt-0.5 text-xs text-zinc-600">No savings vs catalog — local package costs are lowest for this recipe.</p>
+				{/if}
 			</div>
 		</div>
 	</button>
