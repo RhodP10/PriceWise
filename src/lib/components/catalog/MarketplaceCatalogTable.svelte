@@ -43,109 +43,118 @@
 	);
 </script>
 
-<div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-	<table class="w-full min-w-[1180px] text-left text-sm">
-		<thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500">
-			<tr>
-				<th class="px-3 py-3 font-medium">{itemHeader}</th>
-				<th class="px-3 py-3 font-medium">Scrape status</th>
-				<th class="px-3 py-3 font-medium text-right">{channelLabel} pkg ₱</th>
-				<th class="px-3 py-3 font-medium text-right">Pkg size</th>
-				<th class="px-3 py-3 font-medium">Pkg unit</th>
-				<th class="px-3 py-3 font-medium text-right">Ship ₱</th>
-				<th class="px-3 py-3 font-medium text-right">Base qty</th>
-				<th class="px-3 py-3 font-medium">Base unit</th>
-				<th class="px-3 py-3 font-medium text-right">{channelLabel} unit ₱</th>
-				<th class="px-3 py-3 font-medium text-center">Help scrape</th>
-				<th class="px-3 py-3 font-medium text-right">Actions</th>
-			</tr>
-		</thead>
-		<tbody class="divide-y divide-zinc-100">
-			{#each rows as row (row.id)}
-				{@const ui = marketplaceStatusPresentation(row, channel)}
-				{@const pkg = channelLandedPackagePeso(row, channel)}
-				{@const chUnit = channelUnitCostFromLanded(row, channel)}
-				{@const dims = resolvedMarketplaceListingColumns(row, channel)}
-				{@const meta = row.channelScrape?.[channel]}
-				{@const updatedLine = meta?.updatedAt ? formatRelativeTime(meta.updatedAt) : ''}
-				<tr class="hover:bg-zinc-50/80">
-					<td class="px-3 py-2.5 font-medium text-zinc-900">{row.name}</td>
-					<td class="px-3 py-2.5 align-top">
-						<div class="flex max-w-[200px] flex-col gap-1">
-							<span
-								class="inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 {ui.badgeClass}"
-							>
-								{ui.shortLabel}
-							</span>
-							<span class="text-[11px] leading-snug text-zinc-500">{ui.description}</span>
-							{#if updatedLine}
-								<span class="text-[10px] text-zinc-400">{updatedLine}</span>
-							{/if}
-						</div>
-					</td>
-					<td class="px-3 py-2.5 text-right tabular-nums">
-						{#if showMarketplaceLandedPrice(row, channel) && pkg !== null}
-							₱{pkg.toFixed(2)}
-						{:else}
-							<span class="text-zinc-400">—</span>
-						{/if}
-					</td>
-					<td class="px-3 py-2.5 text-right tabular-nums text-zinc-600">
-						{#if dims}{dims.packageSize}{:else}<span class="text-zinc-400">—</span>{/if}
-					</td>
-					<td class="px-3 py-2.5 text-zinc-600">
-						{#if dims}{dims.packageUnit}{:else}<span class="text-zinc-400">—</span>{/if}
-					</td>
-					<td class="px-3 py-2.5 text-right tabular-nums text-zinc-600">
-						{#if dims}₱{dims.shippingFee.toFixed(2)}{:else}<span class="text-zinc-400">—</span>{/if}
-					</td>
-					<td class="px-3 py-2.5 text-right tabular-nums">
-						{#if dims}{dims.baseQuantity}{:else}<span class="text-zinc-400">—</span>{/if}
-					</td>
-					<td class="px-3 py-2.5">
-						{#if dims}{dims.baseUnit}{:else}<span class="text-zinc-400">—</span>{/if}
-					</td>
-					<td class="px-3 py-2.5 text-right tabular-nums font-medium text-emerald-800">
-						{#if showMarketplaceLandedPrice(row, channel) && chUnit !== null}
-							₱{chUnit.toFixed(4)}
-						{:else}
-							<span class="font-normal text-zinc-400">—</span>
-						{/if}
-					</td>
-					<td class="px-3 py-2.5 text-center align-middle">
-						<button
-							type="button"
-							class="inline-flex rounded-lg border bg-white px-2.5 py-1.5 text-xs font-semibold shadow-sm {btnHelp}"
-							onclick={() => onHelpScrape(row)}
-						>
-							Help scrape
-						</button>
-					</td>
-					<td class="px-3 py-2.5 text-right align-top">
-						<div class="flex flex-col items-end gap-2">
-							{#if canMarkScrapeComplete(row, channel)}
-								<button
-									type="button"
-									class="text-xs font-medium {linkMark}"
-									onclick={() => onMarkDone(row)}
+<div class="glass animate-in overflow-hidden rounded-3xl shadow-xl transition-all">
+	<div class="overflow-x-auto">
+		<table class="w-full min-w-[1200px] text-left text-sm">
+			<thead>
+				<tr class="border-b border-zinc-200/50 bg-zinc-50/50 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+					<th class="px-6 py-4">{itemHeader}</th>
+					<th class="px-6 py-4">Scrape Status</th>
+					<th class="px-6 py-4 text-right">{channelLabel} Pkg ₱</th>
+					<th class="px-6 py-4 text-right">Size</th>
+					<th class="px-6 py-4">Unit</th>
+					<th class="px-6 py-4 text-right">Ship Fee</th>
+					<th class="px-6 py-4 text-right">Base Qty</th>
+					<th class="px-6 py-4">Base Unit</th>
+					<th class="px-6 py-4 text-right">{channelLabel} Unit ₱</th>
+					<th class="px-6 py-4 text-center">Help Scrape</th>
+					<th class="px-6 py-4 text-right">Actions</th>
+				</tr>
+			</thead>
+			<tbody class="divide-y divide-zinc-100/50">
+				{#each rows as row (row.id)}
+					{@const ui = marketplaceStatusPresentation(row, channel)}
+					{@const pkg = channelLandedPackagePeso(row, channel)}
+					{@const chUnit = channelUnitCostFromLanded(row, channel)}
+					{@const dims = resolvedMarketplaceListingColumns(row, channel)}
+					{@const meta = row.channelScrape?.[channel]}
+					{@const updatedLine = meta?.updatedAt ? formatRelativeTime(meta.updatedAt) : ''}
+					<tr class="group transition-colors hover:bg-zinc-50/50">
+						<td class="px-6 py-4">
+							<span class="font-semibold text-zinc-900">{row.name}</span>
+						</td>
+						<td class="px-6 py-4">
+							<div class="flex max-w-[200px] flex-col gap-1">
+								<span
+									class="inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ring-1 {ui.badgeClass}"
 								>
-									Mark scrape done
-								</button>
+									{ui.shortLabel}
+								</span>
+								<span class="text-[11px] leading-snug text-zinc-500">{ui.description}</span>
+								{#if updatedLine}
+									<span class="text-[10px] text-zinc-400">{updatedLine}</span>
+								{/if}
+							</div>
+						</td>
+						<td class="px-6 py-4 text-right font-medium tabular-nums text-zinc-900">
+							{#if showMarketplaceLandedPrice(row, channel) && pkg !== null}
+								₱{pkg.toFixed(2)}
+							{:else}
+								<span class="text-zinc-300">—</span>
 							{/if}
+						</td>
+						<td class="px-6 py-4 text-right tabular-nums text-zinc-600">
+							{#if dims}{dims.packageSize}{:else}<span class="text-zinc-300">—</span>{/if}
+						</td>
+						<td class="px-6 py-4 text-xs font-bold uppercase text-zinc-400">
+							{#if dims}{dims.packageUnit}{:else}<span class="text-zinc-300">—</span>{/if}
+						</td>
+						<td class="px-6 py-4 text-right tabular-nums text-zinc-500">
+							{#if dims}₱{dims.shippingFee.toFixed(2)}{:else}<span class="text-zinc-300">—</span>{/if}
+						</td>
+						<td class="px-6 py-4 text-right tabular-nums text-zinc-600">
+							{#if dims}{dims.baseQuantity}{:else}<span class="text-zinc-300">—</span>{/if}
+						</td>
+						<td class="px-6 py-4 text-xs font-bold uppercase text-zinc-400">
+							{#if dims}{dims.baseUnit}{:else}<span class="text-zinc-300">—</span>{/if}
+						</td>
+						<td class="px-6 py-4 text-right">
+							{#if showMarketplaceLandedPrice(row, channel) && chUnit !== null}
+								<div class="flex flex-col items-end">
+									<span class="font-bold text-emerald-700">₱{chUnit.toFixed(4)}</span>
+									<span class="text-[10px] text-zinc-400">per {row.baseUnit}</span>
+								</div>
+							{:else}
+								<span class="text-zinc-300">—</span>
+							{/if}
+						</td>
+						<td class="px-6 py-4 text-center">
 							<button
 								type="button"
-								class="text-xs font-medium text-red-600 hover:underline"
-								onclick={() => onDelete(row)}
+								class="inline-flex rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shadow-sm transition-all hover:bg-emerald-100"
+								onclick={() => onHelpScrape(row)}
 							>
-								Delete
+								Help Scrape
 							</button>
-						</div>
-					</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
+						</td>
+						<td class="px-6 py-4 text-right">
+							<div class="flex flex-col items-end gap-1">
+								{#if canMarkScrapeComplete(row, channel)}
+									<button
+										type="button"
+										class="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+										onclick={() => onMarkDone(row)}
+									>
+										Mark Done
+									</button>
+								{/if}
+								<button
+									type="button"
+									class="text-xs font-bold text-red-400 hover:text-red-600 transition-colors"
+									onclick={() => onDelete(row)}
+								>
+									Delete
+								</button>
+							</div>
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
 	{#if rows.length === 0}
-		<p class="py-12 text-center text-sm text-zinc-500">No rows in this view.</p>
+		<div class="flex flex-col items-center justify-center py-20 text-center">
+			<p class="text-sm text-zinc-500">No items found for this marketplace view.</p>
+		</div>
 	{/if}
 </div>
