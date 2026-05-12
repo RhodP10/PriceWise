@@ -41,3 +41,7 @@ export function monthlyOpexTotal(): number {
 export function resetOpexStore(): void {
 	opexStore.lines = [];
 }
+
+export function replaceOpexLines(next: OpexLineDTO[]): void {
+	opexStore.lines = structuredClone(next);
+}

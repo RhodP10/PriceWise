@@ -1,7 +1,8 @@
+import re
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PACKAGE_UNITS = {"kg", "g", "L", "ml", "piece"}
 BASE_UNITS = {"g", "ml", "piece"}
@@ -173,4 +174,73 @@ class RecipeDetailsOut(BaseModel):
     ingredients: list[RecipeIngredientOut]
     other_costs: list[RecipeOtherCostOut]
     costing: RecipeCostSummaryOut
+
+
+_YEAR_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+class RecipeSalesSnapshotEntryIn(BaseModel):
+    recipe_id: str = Field(min_length=1)
+    recipe_name: str = Field(min_length=1)
+    orders: float = Field(ge=0)
+    revenue: float
+    profit: float
+
+
+class RecipeSalesSnapshotEntryOut(BaseModel):
+    recipe_id: str
+    recipe_name: str
+    orders: float
+    revenue: float
+    profit: float
+
+
+class MonthlySnapshotCreateIn(BaseModel):
+    year_month: str = Field(min_length=7, max_length=7)
+    total_opex: float = Field(ge=0)
+    total_revenue: float = Field(ge=0)
+    gross_profit: float
+    net_profit: float
+    profit_margin_pct: float
+    best_supplier: str = ""
+    recipe_breakdown: list[RecipeSalesSnapshotEntryIn] | None = None
+
+    @field_validator("year_month")
+    @classmethod
+    def validate_year_month(cls, v: str) -> str:
+        if not _YEAR_MONTH.match(v.strip()):
+            raise ValueError("year_month must be YYYY-MM")
+        return v.strip()
+
+
+class MonthlySnapshotOut(BaseModel):
+    id: int
+    year_month: str
+    total_opex: float
+    total_revenue: float
+    gross_profit: float
+    net_profit: float
+    profit_margin_pct: float
+    best_supplier: str
+    generated_at: datetime
+    recipe_breakdown: list[RecipeSalesSnapshotEntryOut] | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class WorkspaceState(BaseModel):
+    """Opaque JSON workspace synced from the Svelte client (camelCase keys in JSON)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    recipes: list[Any] = Field(default_factory=list)
+    ingredients: list[Any] = Field(default_factory=list)
+    others: list[Any] = Field(default_factory=list)
+    opex: list[Any] = Field(default_factory=list)
+    summary_sales: dict[str, float] = Field(
+        default_factory=dict, serialization_alias="summarySales", validation_alias="summarySales"
+    )
+    costing_settings: dict[str, Any] = Field(
+        default_factory=dict, serialization_alias="costingSettings", validation_alias="costingSettings"
+    )
 

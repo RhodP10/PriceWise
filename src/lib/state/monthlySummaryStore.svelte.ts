@@ -9,8 +9,10 @@ function newId(): string {
 	return `ms_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function upsertMonthlySnapshot(row: Omit<MonthlyFinancialSnapshot, 'id' | 'generatedAt'> & { id?: string }): void {
-	const generatedAt = new Date().toISOString();
+export function upsertMonthlySnapshot(
+	row: Omit<MonthlyFinancialSnapshot, 'id' | 'generatedAt'> & { id?: string; generatedAt?: string }
+): void {
+	const generatedAt = row.generatedAt ?? new Date().toISOString();
 	const id = row.id ?? newId();
 	const next: MonthlyFinancialSnapshot = {
 		id,

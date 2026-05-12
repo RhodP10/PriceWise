@@ -1,4 +1,6 @@
-from fastapi import Depends, FastAPI, HTTPException, status
+from datetime import datetime
+
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, select
@@ -9,16 +11,20 @@ from database import Base, engine
 from deps import get_current_user, get_db
 from models import (
     Ingredient,
+    MonthlyFinancialSnapshot,
     Opex,
     OtherCost,
     Recipe,
     RecipeIngredient,
     RecipeOtherCost,
     User,
+    UserWorkspace,
 )
 from schemas import (
     IngredientCreateIn,
     IngredientOut,
+    MonthlySnapshotCreateIn,
+    MonthlySnapshotOut,
     OpexCreateIn,
     OpexOut,
     OtherCostCreateIn,
@@ -33,6 +39,7 @@ from schemas import (
     TokenOut,
     UserOut,
     UserRegisterIn,
+    WorkspaceState,
     convert_to_base,
 )
 
@@ -93,6 +100,116 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @app.get("/auth/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@app.get("/workspace")
+def get_workspace(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    row = db.get(UserWorkspace, current_user.id)
+    base = WorkspaceState().model_dump(mode="json", by_alias=True)
+    if not row or not row.payload:
+        return base
+    merged = {**base, **(row.payload if isinstance(row.payload, dict) else {})}
+    try:
+        state = WorkspaceState.model_validate(merged)
+    except Exception:
+        state = WorkspaceState()
+    return state.model_dump(mode="json", by_alias=True)
+
+
+@app.put("/workspace")
+def put_workspace(
+    body: WorkspaceState,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    data = body.model_dump(mode="json", by_alias=True)
+    now = datetime.utcnow()
+    row = db.get(UserWorkspace, current_user.id)
+    if row:
+        row.payload = data
+        row.updated_at = now
+    else:
+        row = UserWorkspace(user_id=current_user.id, payload=data, updated_at=now)
+        db.add(row)
+    db.commit()
+    return data
+
+
+@app.get("/monthly-summaries", response_model=list[MonthlySnapshotOut])
+def list_monthly_summaries(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    rows = db.scalars(
+        select(MonthlyFinancialSnapshot)
+        .where(MonthlyFinancialSnapshot.user_id == current_user.id)
+        .order_by(MonthlyFinancialSnapshot.year_month.asc())
+    ).all()
+    return [MonthlySnapshotOut.model_validate(r) for r in rows]
+
+
+@app.post("/monthly-summaries", response_model=MonthlySnapshotOut)
+def upsert_monthly_summary(
+    payload: MonthlySnapshotCreateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    breakdown_dump = None
+    if payload.recipe_breakdown is not None:
+        breakdown_dump = [x.model_dump() for x in payload.recipe_breakdown]
+
+    existing = db.scalar(
+        select(MonthlyFinancialSnapshot).where(
+            MonthlyFinancialSnapshot.user_id == current_user.id,
+            MonthlyFinancialSnapshot.year_month == payload.year_month,
+        )
+    )
+    now = datetime.utcnow()
+    if existing:
+        existing.total_opex = payload.total_opex
+        existing.total_revenue = payload.total_revenue
+        existing.gross_profit = payload.gross_profit
+        existing.net_profit = payload.net_profit
+        existing.profit_margin_pct = payload.profit_margin_pct
+        existing.best_supplier = payload.best_supplier.strip()
+        existing.generated_at = now
+        existing.recipe_breakdown = breakdown_dump
+        db.commit()
+        db.refresh(existing)
+        return MonthlySnapshotOut.model_validate(existing)
+
+    row = MonthlyFinancialSnapshot(
+        user_id=current_user.id,
+        year_month=payload.year_month,
+        total_opex=payload.total_opex,
+        total_revenue=payload.total_revenue,
+        gross_profit=payload.gross_profit,
+        net_profit=payload.net_profit,
+        profit_margin_pct=payload.profit_margin_pct,
+        best_supplier=payload.best_supplier.strip(),
+        generated_at=now,
+        recipe_breakdown=breakdown_dump,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return MonthlySnapshotOut.model_validate(row)
+
+
+@app.delete("/monthly-summaries/{snapshot_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_monthly_summary(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = db.scalar(
+        select(MonthlyFinancialSnapshot).where(
+            MonthlyFinancialSnapshot.id == snapshot_id,
+            MonthlyFinancialSnapshot.user_id == current_user.id,
+        )
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    db.delete(row)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/recipes", response_model=RecipeOut)

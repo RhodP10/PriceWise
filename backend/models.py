@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any, Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -18,6 +19,45 @@ class User(Base):
     ingredients = relationship("Ingredient", back_populates="user", cascade="all, delete-orphan")
     other_costs = relationship("OtherCost", back_populates="user", cascade="all, delete-orphan")
     opex_items = relationship("Opex", back_populates="user", cascade="all, delete-orphan")
+    monthly_snapshots = relationship(
+        "MonthlyFinancialSnapshot", back_populates="user", cascade="all, delete-orphan"
+    )
+    workspace = relationship(
+        "UserWorkspace", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class UserWorkspace(Base):
+    """Single JSON document per user: recipes, catalogs, OPEX, summary inputs, costing settings."""
+
+    __tablename__ = "user_workspaces"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="workspace")
+
+
+class MonthlyFinancialSnapshot(Base):
+    """Saved month row from Summary → Statistics (per user)."""
+
+    __tablename__ = "monthly_financial_snapshots"
+    __table_args__ = (UniqueConstraint("user_id", "year_month", name="uq_monthly_snap_user_month"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    year_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    total_opex: Mapped[float] = mapped_column(Float, nullable=False)
+    total_revenue: Mapped[float] = mapped_column(Float, nullable=False)
+    gross_profit: Mapped[float] = mapped_column(Float, nullable=False)
+    net_profit: Mapped[float] = mapped_column(Float, nullable=False)
+    profit_margin_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    best_supplier: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    recipe_breakdown: Mapped[Optional[list[Any]]] = mapped_column(JSON, nullable=True)
+
+    user = relationship("User", back_populates="monthly_snapshots")
 
 
 class Recipe(Base):

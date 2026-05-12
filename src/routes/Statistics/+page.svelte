@@ -7,6 +7,8 @@
 	import { monthlySummaryStore, deleteMonthlySnapshot } from '$lib/state/monthlySummaryStore.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 	import { recipeStore } from '$lib/state/recipes.svelte';
+	import { authState } from '$lib/state/auth.svelte';
+	import { deleteMonthlySummaryOnServer } from '$lib/api/monthlySummariesClient';
 	import type { MonthlyFinancialSnapshot } from '$lib/types/statistics';
 	import {
 		averageChannelPrice,
@@ -90,9 +92,20 @@
 		deleteSnapshotTarget = { id: r.id, label: r.yearMonth };
 	}
 
-	function executeDeleteSnapshot(): void {
-		if (deleteSnapshotTarget) deleteMonthlySnapshot(deleteSnapshotTarget.id);
-		deleteSnapshotTarget = null;
+	async function executeDeleteSnapshot(): Promise<void> {
+		const t = deleteSnapshotTarget;
+		if (!t) return;
+		const token = authState.token;
+		if (!token) {
+			alert('You must be logged in to delete saved statistics.');
+			return;
+		}
+		try {
+			await deleteMonthlySummaryOnServer(token, t.id);
+			deleteMonthlySnapshot(t.id);
+		} catch {
+			alert('Could not delete on the server. Check that the backend is running and try again.');
+		}
 	}
 
 	const tableRows = $derived(

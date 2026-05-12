@@ -12,7 +12,8 @@
 	} from '$lib/state/summarySales.svelte';
 	import { perOrderTotalCost } from '$lib/utils/recipeCosting';
 	import { upsertMonthlySnapshot } from '$lib/state/monthlySummaryStore.svelte';
-	import { persistUserData } from '$lib/state/userDataPersistence';
+	import { pushWorkspaceNow } from '$lib/state/userDataPersistence';
+	import { upsertMonthlySummaryOnServer } from '$lib/api/monthlySummariesClient';
 	import { computeLiveMonthKpis } from '$lib/utils/dashboardFinance';
 	import { bestSupplierLabel } from '$lib/utils/supplierAnalytics';
 	import type { RecipeSalesSnapshotEntry } from '$lib/types/statistics';
@@ -73,7 +74,7 @@
 	const live = $derived(computeLiveMonthKpis(recipeStore.recipes, ingredientMasters, otherMasters));
 	const bestSup = $derived(bestSupplierLabel(ingredientMasters));
 
-	function saveSnapshot(): void {
+	async function saveSnapshot(): Promise<void> {
 		const breakdown: RecipeSalesSnapshotEntry[] = [];
 		for (const r of recipeStore.recipes) {
 			const orders = getRecipeOrdersPerMonth(r.id);
@@ -93,19 +94,42 @@
 			alert('Enter monthly orders for at least one recipe before saving to Statistics.');
 			return;
 		}
-		upsertMonthlySnapshot({
-			yearMonth: live.yearMonth,
-			totalOpex: live.totalOpex,
-			totalRevenue: live.totalRevenue,
-			grossProfit: live.grossProfit,
-			netProfit: live.netProfit,
-			profitMarginPct: live.profitMarginPct,
-			bestSupplier: bestSup,
-			recipeBreakdown: breakdown
-		});
+		const token = authState.token;
+		if (!token) {
+			alert('You must be logged in to save statistics to the server.');
+			return;
+		}
+		try {
+			const saved = await upsertMonthlySummaryOnServer(token, {
+				yearMonth: live.yearMonth,
+				totalOpex: live.totalOpex,
+				totalRevenue: live.totalRevenue,
+				grossProfit: live.grossProfit,
+				netProfit: live.netProfit,
+				profitMarginPct: live.profitMarginPct,
+				bestSupplier: bestSup,
+				recipeBreakdown: breakdown
+			});
+			upsertMonthlySnapshot({
+				id: saved.id,
+				generatedAt: saved.generatedAt,
+				yearMonth: saved.yearMonth,
+				totalOpex: saved.totalOpex,
+				totalRevenue: saved.totalRevenue,
+				grossProfit: saved.grossProfit,
+				netProfit: saved.netProfit,
+				profitMarginPct: saved.profitMarginPct,
+				bestSupplier: saved.bestSupplier,
+				recipeBreakdown: saved.recipeBreakdown
+			});
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : 'Save failed';
+			alert(`Could not save statistics: ${msg}`);
+			return;
+		}
 		resetSummarySales();
 		resetOpexStore();
-		if (authState.user?.id) persistUserData(authState.user.id);
+		if (authState.token) await pushWorkspaceNow(authState.token);
 		void goto('/Statistics');
 	}
 </script>

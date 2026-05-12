@@ -5,20 +5,23 @@
 	import { page } from '$app/stores';
 	import { authState, clearAuth, fetchMe, hydrateAuthFromStorage } from '$lib/state/auth.svelte';
 	import {
+		bootstrapUserWorkspace,
+		cancelWorkspacePersistDebounce,
 		clearInMemoryUserData,
-		loadUserData,
-		persistUserData
+		isWorkspaceSaveEnabled,
+		scheduleWorkspacePersist
 	} from '$lib/state/userDataPersistence';
+	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
 	import { opexStore } from '$lib/state/opexStore.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 	import { recipeStore } from '$lib/state/recipes.svelte';
 	import { summarySales } from '$lib/state/summarySales.svelte';
-	import { monthlySummaryStore } from '$lib/state/monthlySummaryStore.svelte';
+	import { replaceMonthlySummariesFromApi } from '$lib/state/monthlySummaryStore.svelte';
 
 	const { children } = $props();
 
-	/** Only hydrate from localStorage when the logged-in user id changes — not on every `fetchMe()` profile refresh (same id), which would overwrite in-memory stores before persist runs. */
+	/** Only hydrate from the server when the logged-in user id changes — not on every `fetchMe()` profile refresh (same id), which would overwrite in-memory stores before persist runs. */
 	let hydratedUserId = $state<number | null>(null);
 
 	const links = [
@@ -57,19 +60,32 @@
 		}
 		if (hydratedUserId === id) return;
 		hydratedUserId = id;
-		loadUserData(id);
+		const tok = authState.token;
+		if (tok) {
+			void bootstrapUserWorkspace(id, tok);
+		} else {
+			replaceMonthlySummariesFromApi([]);
+		}
 	});
 
 	$effect(() => {
 		if (!browser) return;
 		if (!authState.user?.id) return;
+		if (!isWorkspaceSaveEnabled()) return;
+		const tok = authState.token;
+		if (!tok) return;
 		recipeStore.recipes;
 		ingredientCatalog.items;
 		otherCatalog.items;
 		opexStore.lines;
 		summarySales.ordersPerMonthByRecipeId;
-		monthlySummaryStore.rows;
-		persistUserData(authState.user.id);
+		costingSettings.vatRegistered;
+		costingSettings.vatPct;
+		costingSettings.batchSize;
+		costingSettings.targetMarginPct;
+		costingSettings.discountPct;
+		scheduleWorkspacePersist(tok);
+		return () => cancelWorkspacePersistDebounce();
 	});
 
 	function logout(): void {

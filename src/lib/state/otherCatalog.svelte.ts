@@ -117,3 +117,7 @@ export function getOtherMaster(id: string): OtherItemMasterDTO | undefined {
 export function resetOtherCatalog(): void {
 	otherCatalog.items = structuredClone(mockOtherMasters);
 }
+
+export function replaceOtherCatalogItems(next: OtherItemMasterDTO[]): void {
+	otherCatalog.items = structuredClone(next);
+}

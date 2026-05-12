@@ -118,6 +118,10 @@ export function resetIngredientCatalog(): void {
 	ingredientCatalog.items = structuredClone(mockIngredientMasters);
 }
 
+export function replaceIngredientCatalogItems(next: IngredientMasterDTO[]): void {
+	ingredientCatalog.items = structuredClone(next);
+}
+
 /** Units shown in forms */
 export const MEASURE_UNIT_OPTIONS: { value: MeasureUnit; label: string }[] = [
 	{ value: 'g', label: 'g' },
