@@ -1,8 +1,15 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type { RecipeDTO } from '$lib/types/recipe';
+	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
+	import { updateRecipePricing } from '$lib/state/recipes.svelte';
 	import RecipeCostingPanel from '$lib/components/recipes/RecipeCostingPanel.svelte';
+	import {
+		computeAutoSyncedRecipePricing,
+		recipePricingMatchesSuggested
+	} from '$lib/utils/recipeCosting';
 
 	const {
 		recipe,
@@ -18,6 +25,32 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
+
+	/** Persist suggested channel list prices whenever costing opens (keeps recipe cards / summary in sync). */
+	$effect(() => {
+		if (!browser || !open || !recipe) return;
+		void costingSettings.vatRegistered;
+		void costingSettings.vatPct;
+		void costingSettings.batchSize;
+		void costingSettings.targetMarginPct;
+		void costingSettings.discountPct;
+		void recipe.ingredientLines;
+		void recipe.otherLines;
+		void recipe.pricing;
+		void masters;
+		void otherMasters;
+
+		const next = computeAutoSyncedRecipePricing(recipe, masters, otherMasters, {
+			vatRegistered: costingSettings.vatRegistered,
+			vatPct: costingSettings.vatPct,
+			batchSize: costingSettings.batchSize,
+			targetMarginPct: costingSettings.targetMarginPct,
+			discountPct: costingSettings.discountPct
+		});
+		const pick = { local: next.local, shopee: next.shopee, lazada: next.lazada };
+		if (recipePricingMatchesSuggested(recipe.pricing, pick)) return;
+		updateRecipePricing(recipe.id, pick);
+	});
 
 	function onBackdropMouseDown(e: MouseEvent): void {
 		if (e.target === backdrop) onClose();

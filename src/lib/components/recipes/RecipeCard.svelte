@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { RecipeDTO } from '$lib/types/recipe';
+	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 	import {
+		computeAutoSyncedRecipePricing,
 		computeRecipeMarketIngredientSavingsVsCatalog,
 		type RecipeMarketSavingsChannel
 	} from '$lib/utils/recipeCosting';
+	import RecipeCardHelp from '$lib/components/recipes/RecipeCardHelp.svelte';
 
 	const {
 		recipe,
@@ -24,10 +27,30 @@
 		computeRecipeMarketIngredientSavingsVsCatalog(recipe, masters, otherMasters)
 	);
 
+	/** Same list prices as Costing drawer — derived so the card updates when lines or catalog change. */
+	const suggestedList = $derived.by(() => {
+		void costingSettings.vatRegistered;
+		void costingSettings.vatPct;
+		void costingSettings.batchSize;
+		void costingSettings.targetMarginPct;
+		void costingSettings.discountPct;
+		void recipe.ingredientLines;
+		void recipe.otherLines;
+		void masters;
+		void otherMasters;
+		return computeAutoSyncedRecipePricing(recipe, masters, otherMasters, {
+			vatRegistered: costingSettings.vatRegistered,
+			vatPct: costingSettings.vatPct,
+			batchSize: costingSettings.batchSize,
+			targetMarginPct: costingSettings.targetMarginPct,
+			discountPct: costingSettings.discountPct
+		});
+	});
+
 	/** Which sourcing column has the lowest ingredient COGS for this recipe (among values we have). */
 	const cheapestSource = $derived.by(() => {
-		type Key = 'catalog' | 'shopee' | 'lazada';
-		const opts: { key: Key; cogs: number }[] = [{ key: 'catalog', cogs: ingSavings.localCogs }];
+		type Key = 'local' | 'shopee' | 'lazada';
+		const opts: { key: Key; cogs: number }[] = [{ key: 'local', cogs: ingSavings.localCogs }];
 		if (ingSavings.shopeeCogs !== null) opts.push({ key: 'shopee', cogs: ingSavings.shopeeCogs });
 		if (ingSavings.lazadaCogs !== null) opts.push({ key: 'lazada', cogs: ingSavings.lazadaCogs });
 		let best = opts[0]!;
@@ -45,15 +68,44 @@
 		if (v === null || !Number.isFinite(v) || v < 0) return '—';
 		return `₱${v.toFixed(2)}`;
 	}
+
+	function fmtSell(n: number): string {
+		if (!Number.isFinite(n) || n <= 0) return '—';
+		return `₱${n.toFixed(2)}`;
+	}
+
+	/** One help panel open at a time; ? stops propagation so the card does not open Costing. */
+	let helpOpen = $state<'sell' | 'cogs' | 'summary' | null>(null);
+
+	function toggleHelp(id: 'sell' | 'cogs' | 'summary', e: MouseEvent): void {
+		e.stopPropagation();
+		e.preventDefault();
+		helpOpen = helpOpen === id ? null : id;
+	}
+
+	function onWindowKeydown(e: KeyboardEvent): void {
+		if (e.key === 'Escape' && helpOpen !== null) helpOpen = null;
+	}
+
+	function costingRowKeydown(e: KeyboardEvent): void {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onCosting();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <article
 	class="glass group flex flex-col overflow-hidden rounded-3xl shadow-lg transition-all hover:-translate-y-1 hover:shadow-xl"
 >
-	<button
-		type="button"
-		class="flex w-full flex-col p-6 text-left outline-none transition-colors group-hover:bg-zinc-50/50"
+	<div
+		role="button"
+		tabindex="0"
+		class="flex w-full cursor-pointer flex-col p-6 text-left outline-none transition-colors group-hover:bg-zinc-50/50 focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
 		onclick={onCosting}
+		onkeydown={costingRowKeydown}
 		aria-label="Open costing and pricing for {recipe.name}"
 	>
 		<div class="flex items-start justify-between gap-3">
@@ -68,10 +120,10 @@
 				</div>
 				<div class="flex flex-wrap gap-2 pt-2">
 					<span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-						{recipe.ingredientLines.length} Ingredients
+						Ingredients
 					</span>
 					<span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-						{recipe.otherLines.length} Others
+						Others
 					</span>
 				</div>
 			</div>
@@ -92,11 +144,11 @@
 						<span class="text-lg font-bold text-emerald-900"> / order</span>
 					</p>
 					<p class="mt-1 text-sm font-semibold text-emerald-900">
-						Cheaper on {marketLabel(lead.channel)} than your catalog COGS
+						Cheaper on {marketLabel(lead.channel)} than your local COGS
 					</p>
 					{#if ingSavings.channelsCheaperThanCatalog.length > 1}
 						<p class="mt-2 text-[11px] leading-snug text-emerald-900/85">
-							Also beats catalog:
+							Also cheaper than local:
 							{#each ingSavings.channelsCheaperThanCatalog.slice(1) as row, i (row.channel)}
 								{#if i > 0}<span class="text-emerald-700/70"> · </span>{/if}
 								<span class="font-medium"
@@ -108,26 +160,57 @@
 				</div>
 			{/if}
 
-			<div class="flex items-end justify-between gap-2">
-				<div>
-					<p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Ingredient COGS</p>
-					<p class="mt-0.5 text-[10px] leading-snug text-zinc-500">
-						Per order — catalog unit costs vs scraped marketplace landed prices.
-					</p>
+			<div class="rounded-2xl border border-teal-100/80 bg-gradient-to-br from-white to-teal-50/40 p-4 shadow-inner">
+				<RecipeCardHelp
+					expanded={helpOpen === 'sell'}
+					onToggle={(e) => toggleHelp('sell', e)}
+					label="Suggested selling price"
+				>
+					{#snippet title()}
+						<p class="text-[10px] font-bold uppercase tracking-wider text-teal-800/80">
+							Suggested selling price
+						</p>
+					{/snippet}
+					{#snippet children()}
+						<p>
+							Local list price uses your target margin (same as Costing). Shopee and Lazada list prices
+							appear when every ingredient and other line in this recipe has that channel’s landed total
+							filled from a scrape.
+						</p>
+					{/snippet}
+				</RecipeCardHelp>
+				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900">{fmtSell(suggestedList.local)}</p>
+				<div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-zinc-600">
+					<span>Shopee list: <span class="font-semibold text-zinc-900">{fmtSell(suggestedList.shopee)}</span></span>
+					<span>Lazada list: <span class="font-semibold text-zinc-900">{fmtSell(suggestedList.lazada)}</span></span>
 				</div>
-				<p class="text-2xl font-bold tabular-nums text-zinc-900">
-					₱{ingSavings.localCogs.toFixed(2)}
-				</p>
 			</div>
+
+			<RecipeCardHelp
+					expanded={helpOpen === 'cogs'}
+					onToggle={(e) => toggleHelp('cogs', e)}
+					label="Ingredient COGS"
+				>
+					{#snippet title()}
+						<p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Ingredient COGS</p>
+					{/snippet}
+					{#snippet children()}
+						<p>
+							Per order ingredient cost for this recipe. Local uses your catalog unit costs. Shopee and
+							Lazada use landed package price ÷ base quantity from each row, only when every line has that
+							channel filled. Totals for each channel are in the boxes below.
+						</p>
+					{/snippet}
+				</RecipeCardHelp>
 
 			<div class="grid grid-cols-3 gap-2">
 				<div
-					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'catalog'
+					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'local'
 						? 'bg-zinc-100 ring-2 ring-zinc-400'
 						: 'bg-zinc-50'}"
-					title="Recipe lines × your catalog unit cost."
+					title="Recipe lines × your local (catalog) unit cost."
 				>
-					<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Catalog</p>
+					<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Local</p>
 					<p class="text-sm font-bold tabular-nums text-zinc-900">
 						{fmtCogs(ingSavings.localCogs)}
 					</p>
@@ -154,21 +237,38 @@
 
 			<div
 				class="rounded-xl border border-zinc-200/80 bg-white/70 px-3 py-2.5 text-left shadow-inner ring-1 ring-zinc-100/80"
-				title="Sourcing comparison uses ingredient COGS only (not selling price with margin). Open costing for list prices."
 			>
-				<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Summary · Savings</p>
+				<RecipeCardHelp
+					expanded={helpOpen === 'summary'}
+					onToggle={(e) => toggleHelp('summary', e)}
+					label="Summary and savings"
+				>
+					{#snippet title()}
+						<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Summary · Savings</p>
+					{/snippet}
+					{#snippet children()}
+						<p>
+							Shows ingredient savings when a marketplace is cheaper than your local COGS, or how much you
+							save by staying local vs marketplace when those channels are filled. Uses COGS only, not
+							selling price with margin. Add Shopee and Lazada landed totals on every ingredient and other
+							in this recipe to unlock marketplace comparisons. If the summary shows “—”, open this help
+							or add lines to the recipe first.
+						</p>
+					{/snippet}
+				</RecipeCardHelp>
+				<div class="mt-2">
 				{#if linesCount === 0}
-					<p class="mt-0.5 text-xs text-zinc-500">Add lines to compare sourcing.</p>
+					<p class="mt-1 text-xs text-zinc-500">—</p>
 				{:else if ingSavings.channelsCheaperThanCatalog.length > 0}
-					<p class="mt-0.5 text-xs leading-snug text-emerald-900">
+					<p class="mt-1 text-xs leading-snug text-emerald-900">
 						Buying these ingredients on {marketLabel(ingSavings.channelsCheaperThanCatalog[0]!.channel)}
 						saves <span class="font-semibold tabular-nums"
 							>₱{ingSavings.channelsCheaperThanCatalog[0]!.savePerOrder.toFixed(2)}</span
 						>
-						per order vs your catalog COGS.
+						per order vs your local COGS.
 					</p>
 				{:else if ingSavings.catalogVsMarketplaceSavings.length > 0}
-					<ul class="mt-0.5 list-none space-y-1 text-xs tabular-nums text-zinc-900">
+					<ul class="mt-1 list-none space-y-1 text-xs tabular-nums text-zinc-900">
 						{#each ingSavings.catalogVsMarketplaceSavings as row (row.channel)}
 							<li class="flex items-baseline justify-between gap-2 border-b border-zinc-100/90 pb-1 last:border-0 last:pb-0">
 								<span class="text-zinc-600">vs {marketLabel(row.channel)}</span>
@@ -177,18 +277,16 @@
 						{/each}
 					</ul>
 				{:else if ingSavings.shopeeCogs === null && ingSavings.lazadaCogs === null}
-					<p class="mt-0.5 text-xs leading-snug text-zinc-600">
-						Add <span class="font-medium text-zinc-800">Shopee / Lazada landed</span> on every ingredient &amp; other
-						in this recipe to see savings.
-					</p>
+					<p class="mt-1 text-xs font-medium text-zinc-400">—</p>
 				{:else}
-					<p class="mt-0.5 text-xs leading-snug text-zinc-600">
-						Catalog and marketplace ingredient COGS match (no savings difference for this recipe).
+					<p class="mt-1 text-xs leading-snug text-zinc-600">
+						Local and marketplace ingredient COGS match.
 					</p>
 				{/if}
+				</div>
 			</div>
 		</div>
-	</button>
+	</div>
 
 	<div class="border-t border-zinc-100/50 bg-zinc-50/30 p-4">
 		<button
