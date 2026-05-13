@@ -38,12 +38,15 @@ Edit `.env`:
 
 ```env
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/pricewise
-SQLITE_URL=sqlite:///./pricewise.db
 JWT_SECRET=change-this-dev-secret
 JWT_EXPIRE_MINUTES=10080
 ```
 
-If `DATABASE_URL` is missing, SQLite fallback is used.
+If `DATABASE_URL` is missing, SQLite is used at **`backend/pricewise.db`** (always next to `database.py`, not relative to your shell). That avoids “data resetting” when `uvicorn` is started from different folders.
+
+Optional: set `SQLITE_URL` to an **absolute** path if you want another file, e.g. `sqlite:///C:/data/pricewise.db`. Avoid `sqlite:///./pricewise.db` — `./` follows the process working directory, so each cwd can point at a different (empty) file.
+
+If you previously ran the API from another folder and have an old `pricewise.db` there with your data, copy that file into `backend/pricewise.db` (replacing or merging as needed) so this stable path picks it up.
 
 ### 4. Run the Backend
 
