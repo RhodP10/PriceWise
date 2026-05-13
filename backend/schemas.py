@@ -31,6 +31,13 @@ class UserRegisterIn(BaseModel):
     email: str
     password: str = Field(min_length=6)
 
+    @field_validator("email")
+    @classmethod
+    def validate_gmail(cls, v: str) -> str:
+        if not v.lower().strip().endswith("@gmail.com"):
+            raise ValueError("Only Gmail addresses are allowed")
+        return v.lower().strip()
+
 
 class UserOut(BaseModel):
     id: int
