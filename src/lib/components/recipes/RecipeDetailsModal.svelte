@@ -51,6 +51,11 @@
 	>(null);
 
 	let pendingRecipeDelete = $state(false);
+	/** Shown only after user taps Add with a unit that doesn’t convert to the catalog base. */
+	let addConversionReportShown = $state(false);
+	let costingPathHelpOpen = $state(false);
+	/** Taller / wider modal so more recipe lines fit on screen without scrolling. */
+	let linesListExpanded = $state(false);
 
 	type CombinedRow =
 		| { kind: 'ingredient'; line: RecipeDTO['ingredientLines'][number] }
@@ -100,6 +105,8 @@
 		if (open && recipe && openedRecipeId !== recipe.id) {
 			openedRecipeId = recipe.id;
 			addMode = 'ingredient';
+			addConversionReportShown = false;
+			linesListExpanded = false;
 		}
 		if (!open) openedRecipeId = null;
 	});
@@ -113,7 +120,14 @@
 			quickAddIngredientOpen = false;
 			quickAddOtherOpen = false;
 			pendingRecipeDelete = false;
+			addConversionReportShown = false;
+			costingPathHelpOpen = false;
+			linesListExpanded = false;
 		}
+	});
+
+	$effect(() => {
+		if (addPreview?.qtyOk) addConversionReportShown = false;
 	});
 
 	$effect(() => {
@@ -168,6 +182,14 @@
 				pendingRecipeDelete = false;
 				return;
 			}
+			if (costingPathHelpOpen) {
+				costingPathHelpOpen = false;
+				return;
+			}
+			if (linesListExpanded) {
+				linesListExpanded = false;
+				return;
+			}
 			if (quickAddIngredientOpen || quickAddOtherOpen) return;
 			onClose();
 		}
@@ -181,6 +203,11 @@
 	function submitAddLine(e: Event): void {
 		e.preventDefault();
 		if (!recipe) return;
+		if (!addPreview || !addPreview.qtyOk) {
+			if (addPreview && !addPreview.qtyOk) addConversionReportShown = true;
+			return;
+		}
+		addConversionReportShown = false;
 		if (addMode === 'ingredient') {
 			if (!masters.length || !addIngredientMasterId) return;
 			addRecipeIngredientLine(recipe.id, addIngredientMasterId, addQty, addUnit);
@@ -231,16 +258,65 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		bind:this={backdrop}
-		class="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 p-3 backdrop-blur-sm sm:items-center sm:p-4"
+		class="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 backdrop-blur-sm sm:items-center {linesListExpanded
+			? 'p-2 sm:p-3'
+			: 'p-3 sm:p-4'}"
 		onmousedown={onBackdropMouseDown}
 		role="dialog"
 		aria-modal="true"
-		aria-labelledby="recipe-name-field"
+		aria-labelledby={linesListExpanded ? 'recipe-lines-slim-title' : 'recipe-name-field'}
 		tabindex="-1"
 	>
 		<div
-			class="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-zinc-700/80 bg-white shadow-2xl ring-1 ring-black/5"
+			class="flex w-full flex-col overflow-hidden rounded-3xl border border-zinc-700/80 bg-white shadow-2xl ring-1 ring-black/5 transition-[max-width,max-height,height] duration-200 ease-out {linesListExpanded
+				? 'h-[min(98dvh,60rem)] max-h-[99dvh] max-w-[min(96vw,72rem)] sm:h-[min(96vh,60rem)]'
+				: 'h-[min(92dvh,52rem)] max-h-[94vh] max-w-3xl sm:h-[min(90vh,52rem)]'}"
 		>
+			{#if linesListExpanded}
+				<div
+					class="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-900 px-3 py-2.5 text-white sm:px-4"
+				>
+					<p id="recipe-lines-slim-title" class="min-w-0 truncate text-sm font-semibold tracking-tight">
+						{draftName.trim() || recipe.name}
+					</p>
+					<div class="flex shrink-0 items-center gap-1.5">
+						<button
+							type="button"
+							class="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
+							aria-label="Compact layout — show add ingredients bar"
+							title="Compact layout"
+							onclick={() => (linesListExpanded = false)}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<path d="M4 14v2a2 2 0 0 0 2 2h2" />
+								<path d="M4 10V8a2 2 0 0 1 2-2h2" />
+								<path d="M20 14v2a2 2 0 0 1-2 2h-2" />
+								<path d="M20 10V8a2 2 0 0 0-2-2h-2" />
+								<path d="M9 9h6v6H9z" />
+							</svg>
+						</button>
+						<button
+							type="button"
+							class="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-lg leading-none text-zinc-300 transition hover:bg-white/10 hover:text-white"
+							onclick={onClose}
+							aria-label="Close"
+						>
+							×
+						</button>
+					</div>
+				</div>
+			{:else}
 			<!-- Recipe Manager–style header -->
 			<div
 				class="relative shrink-0 overflow-hidden bg-zinc-900 px-4 py-5 text-white sm:px-6 sm:py-6"
@@ -311,20 +387,79 @@
 					</button>
 				</div>
 			</div>
+			{/if}
 
-			<!-- Scroll: one compact categorized table -->
-			<div class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto bg-zinc-50/80 p-4 sm:p-5">
-				<div class="mx-auto max-w-2xl">
-					<p class="mb-2 text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-						Recipe lines
-					</p>
+			<!-- Scroll: recipe lines + COGS -->
+			<div
+				class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto overflow-x-auto bg-zinc-50/80 p-4 sm:p-5"
+			>
+				<div class="mx-auto max-w-4xl">
+					<div class="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+						<span class="min-w-0" aria-hidden="true"></span>
+						<p class="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+							Recipe lines
+						</p>
+						<div class="flex justify-end">
+							<button
+								type="button"
+								class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200/90 bg-white text-zinc-600 shadow-sm ring-1 ring-zinc-100 transition hover:border-orange-300 hover:bg-orange-50/80 hover:text-orange-800"
+								aria-pressed={linesListExpanded}
+								aria-label={linesListExpanded ? 'Use compact recipe list layout' : 'Expand recipe list (semi full screen)'}
+								title={linesListExpanded ? 'Compact layout' : 'Larger list'}
+								onclick={() => (linesListExpanded = !linesListExpanded)}
+							>
+								{#if linesListExpanded}
+									<!-- compress / exit expanded -->
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<path d="M4 14v2a2 2 0 0 0 2 2h2" />
+										<path d="M4 10V8a2 2 0 0 1 2-2h2" />
+										<path d="M20 14v2a2 2 0 0 1-2 2h-2" />
+										<path d="M20 10V8a2 2 0 0 0-2-2h-2" />
+										<path d="M9 9h6v6H9z" />
+									</svg>
+								{:else}
+									<!-- expand outward -->
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<path d="M15 3h6v6" />
+										<path d="M9 21H3v-6" />
+										<path d="m21 3-7 7" />
+										<path d="m3 21 7-7" />
+									</svg>
+								{/if}
+							</button>
+						</div>
+					</div>
+					{#if !linesListExpanded}
 					<p class="mb-3 text-center text-xs leading-relaxed text-zinc-500">
 						Each row is either an <strong class="text-zinc-700">ingredient</strong> or an
 						<strong class="text-zinc-700">other</strong> (cups, lids, etc.). Pick the catalog item, qty, and unit.
 					</p>
+					{/if}
 
 					<div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-						<table class="w-full text-left text-sm">
+						<table class="w-full min-w-[36rem] text-left text-sm sm:min-w-0">
 							<thead class="bg-zinc-100 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
 								<tr>
 									<th class="px-3 py-2.5 font-medium">Type</th>
@@ -348,10 +483,10 @@
 													Ingr.
 												</span>
 											</td>
-											<td class="max-w-[140px] px-3 py-2.5 align-top sm:max-w-none">
+											<td class="min-w-[10rem] max-w-[min(100vw,22rem)] px-3 py-2.5 align-top sm:min-w-[12rem] sm:max-w-none">
 												{#if m}
-													<span class="font-medium text-zinc-900">{m.name}</span>
-													<span class="mt-0.5 block truncate text-[10px] text-zinc-400">{m.supplier}</span>
+													<span class="font-medium break-words text-zinc-900">{m.name}</span>
+													<span class="mt-0.5 block break-words text-[10px] text-zinc-500">{m.supplier}</span>
 												{:else}
 													<span class="text-amber-700">Missing item</span>
 												{/if}
@@ -420,10 +555,10 @@
 													Other
 												</span>
 											</td>
-											<td class="max-w-[140px] px-3 py-2.5 align-top sm:max-w-none">
+											<td class="min-w-[10rem] max-w-[min(100vw,22rem)] px-3 py-2.5 align-top sm:min-w-[12rem] sm:max-w-none">
 												{#if om}
-													<span class="font-medium text-zinc-900">{om.name}</span>
-													<span class="mt-0.5 block truncate text-[10px] text-zinc-400">{om.supplier}</span>
+													<span class="font-medium break-words text-zinc-900">{om.name}</span>
+													<span class="mt-0.5 block break-words text-[10px] text-zinc-500">{om.supplier}</span>
 												{:else}
 													<span class="text-amber-700">Missing item</span>
 												{/if}
@@ -487,25 +622,16 @@
 						</table>
 						{#if combinedLines.length === 0}
 							<p class="border-t border-zinc-100 bg-zinc-50/60 px-4 py-8 text-center text-sm text-zinc-500">
-								No lines yet. Use <strong class="text-zinc-800">Add ingredient</strong> or
-								<strong class="text-zinc-800">Add other</strong> below — add catalog items on the
-								<strong>Ingredients</strong> and <strong>Others</strong> pages first if lists are empty.
+								{#if linesListExpanded}
+									No lines yet. Tap <strong class="text-zinc-800">Compact layout</strong> (toolbar or
+									above) to show the add row and build this recipe.
+								{:else}
+									No lines yet. Use <strong class="text-zinc-800">Add ingredient</strong> or
+									<strong class="text-zinc-800">Add other</strong> below — add catalog items on the
+									<strong>Ingredients</strong> and <strong>Others</strong> pages first if lists are empty.
+								{/if}
 							</p>
 						{/if}
-					</div>
-
-					<div class="mt-4 rounded-2xl border border-red-200/80 bg-red-50/50 px-4 py-3 sm:px-5">
-						<p class="text-[10px] font-bold uppercase tracking-wider text-red-800">Danger zone</p>
-						<p class="mt-1 text-xs leading-snug text-red-900/85">
-							Delete this recipe and all its lines here. Your catalog ingredients and others are not removed.
-						</p>
-						<button
-							type="button"
-							class="mt-2 rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 shadow-sm transition hover:bg-red-50"
-							onclick={() => (pendingRecipeDelete = true)}
-						>
-							Delete entire recipe
-						</button>
 					</div>
 
 					<div
@@ -527,6 +653,7 @@
 				</div>
 			</div>
 
+			{#if !linesListExpanded}
 			<!-- Add bar: one row + costing clarity -->
 			<div
 				class="shrink-0 border-t border-zinc-200 bg-white px-4 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.06)] sm:px-6 sm:py-4"
@@ -539,7 +666,11 @@
 							'ingredient'
 								? 'bg-white text-emerald-800 shadow-sm ring-1 ring-zinc-200/80'
 								: 'text-zinc-500 hover:text-zinc-800'}"
-							onclick={() => (addMode = 'ingredient')}
+							onclick={() => {
+								addMode = 'ingredient';
+								addConversionReportShown = false;
+								costingPathHelpOpen = false;
+							}}
 						>
 							Add ingredient
 						</button>
@@ -549,20 +680,47 @@
 							'other'
 								? 'bg-white text-sky-900 shadow-sm ring-1 ring-zinc-200/80'
 								: 'text-zinc-500 hover:text-zinc-800'}"
-							onclick={() => (addMode = 'other')}
+							onclick={() => {
+								addMode = 'other';
+								addConversionReportShown = false;
+								costingPathHelpOpen = false;
+							}}
 						>
 							Add other
 						</button>
 					</div>
 
 					<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-						<p class="max-w-xl text-[11px] leading-snug text-zinc-600">
-							<span class="font-bold text-zinc-800">Costing path:</span>
-							you attach a <strong>catalog {addMode === 'ingredient' ? 'ingredient' : 'other'}</strong> (price is
-							already per g, ml, or piece from that item’s package). This recipe then uses your
-							<strong>quantity + unit</strong> here — we convert to the catalog’s base unit and multiply by its
-							<strong>₱/base</strong> to get this line’s cost.
-						</p>
+						<div class="flex min-w-0 flex-1 flex-col gap-2">
+							<div class="flex flex-wrap items-center gap-1.5">
+								<span class="text-[11px] font-bold text-zinc-800">Costing path</span>
+								<button
+									type="button"
+									class="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-zinc-300/90 bg-white text-[11px] font-bold leading-none text-zinc-600 shadow-sm ring-zinc-200/80 transition hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-900"
+									aria-expanded={costingPathHelpOpen}
+									aria-label="Help: how recipe line costing works"
+									onclick={() => (costingPathHelpOpen = !costingPathHelpOpen)}
+								>
+									?
+								</button>
+							</div>
+							{#if costingPathHelpOpen}
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+								<div
+									role="note"
+									class="max-w-xl rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2.5 text-left text-[11px] leading-relaxed text-zinc-600 shadow-lg ring-1 ring-zinc-200/60"
+									onmousedown={(e) => e.stopPropagation()}
+								>
+									<p>
+										You attach a <strong>catalog {addMode === 'ingredient' ? 'ingredient' : 'other'}</strong>
+										(price is already per g, ml, or piece from that item’s package). This recipe then uses
+										your <strong>quantity + unit</strong> here — we convert to the catalog’s base unit and
+										multiply by its <strong>₱/base</strong> to get this line’s cost.
+									</p>
+								</div>
+							{/if}
+						</div>
 						<button
 							type="button"
 							class="shrink-0 self-start rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition {addMode ===
@@ -658,29 +816,56 @@
 									? 'bg-orange-600'
 									: 'bg-zinc-900'}"
 							>
-								Add line
+								{addMode === 'ingredient' ? 'Add ingr' : 'Add other'}
 							</button>
 						</div>
 
-						{#if addPreview}
-							<div class="rounded-lg bg-zinc-100/80 px-2.5 py-2 text-[11px] leading-snug text-zinc-700">
-								<strong class="text-zinc-900">{addPreview.name}</strong>
-								<span class="text-zinc-500"> · catalog base </span>
-								<span class="font-mono tabular-nums text-zinc-800">{addPreview.baseUnit}</span>
-								<span class="text-zinc-500"> at </span>
-								<span class="font-semibold tabular-nums text-zinc-900">{fmt(addPreview.unitCost)}</span>
-								<span class="text-zinc-500"> /{addPreview.baseUnit}</span>
-								{#if addPreview.lineCost !== null && addPreview.qtyOk}
-									<span class="text-zinc-500"> → </span>
-									<span class="font-semibold text-emerald-800">this line ≈ {fmt(addPreview.lineCost)}</span>
-								{:else if !addPreview.qtyOk}
-									<span class="text-amber-800"> — unit can’t convert to this catalog’s base; try g, ml, or piece.</span>
-								{/if}
+						{#if addPreview && addPreview.qtyOk && addPreview.lineCost !== null}
+							<div
+								class="w-full max-w-full rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2.5 text-left text-[11px] leading-relaxed text-zinc-600 shadow-lg ring-1 ring-zinc-200/60"
+								role="status"
+							>
+								<p>
+									<strong class="font-semibold text-zinc-800">{addPreview.name}</strong>
+									<span> · catalog base </span>
+									<span class="font-mono tabular-nums text-zinc-700">{addPreview.baseUnit}</span>
+									<span> at </span>
+									<span class="font-semibold tabular-nums text-zinc-800">{fmt(addPreview.unitCost)}</span>
+									<span> /{addPreview.baseUnit}</span>
+									<span> → </span>
+									<span class="font-semibold text-zinc-800">this line ≈ {fmt(addPreview.lineCost)}</span>
+								</p>
+							</div>
+						{:else if addConversionReportShown && addPreview && !addPreview.qtyOk}
+							<div
+								class="rounded-xl border border-amber-300/90 bg-amber-50/95 px-3 py-2.5 text-[11px] leading-snug text-amber-950 shadow-sm ring-1 ring-amber-200/60 sm:px-4"
+								role="alert"
+							>
+								<p class="text-[10px] font-bold uppercase tracking-wider text-amber-900">Report</p>
+								<p class="mt-1 font-medium">
+									<strong class="text-amber-950">{addPreview.name}</strong>
+									<span class="text-amber-900/90">
+										· catalog base {addPreview.baseUnit} at {fmt(addPreview.unitCost)} /{addPreview.baseUnit}
+										— your quantity/unit can’t convert to this catalog’s base. Try
+										<strong>g</strong>, <strong>ml</strong>, or <strong>piece</strong>, or pick another item.
+									</span>
+								</p>
 							</div>
 						{/if}
+
+						<div class="flex justify-end pt-1">
+							<button
+								type="button"
+								class="text-xs font-semibold text-red-600 underline-offset-2 transition hover:text-red-700 hover:underline"
+								onclick={() => (pendingRecipeDelete = true)}
+							>
+								Delete entire recipe
+							</button>
+						</div>
 					</form>
 				</div>
 			</div>
+			{/if}
 		</div>
 	</div>
 {/if}
