@@ -99,17 +99,64 @@ export function computeRecipeMarketIngredientSavingsVsCatalog(
 	/** Per-order ingredient savings when the cheapest covered marketplace beats catalog COGS. */
 	savedPerOrder: number | null;
 	bestMarketplace: RecipeMarketSavingsChannel | null;
+	/** Every marketplace whose landed ingredient COGS for this recipe is below catalog COGS (largest save first). */
+	channelsCheaperThanCatalog: { channel: RecipeMarketSavingsChannel; savePerOrder: number }[];
+	/**
+	 * When catalog COGS is below a marketplace total, how much you avoid paying per order by staying on catalog
+	 * (marketplace COGS − catalog COGS). Largest first.
+	 */
+	catalogVsMarketplaceSavings: { channel: RecipeMarketSavingsChannel; savePerOrder: number }[];
 } {
 	const localCogs = perOrderTotalCost(recipe, ingredientMasters, otherMasters);
 	const shopeeCogs = perOrderTotalCostForMarketplace(recipe, ingredientMasters, otherMasters, 'shopee');
 	const lazadaCogs = perOrderTotalCostForMarketplace(recipe, ingredientMasters, otherMasters, 'lazada');
 
+	const catalogVsMarketplaceSavings: { channel: RecipeMarketSavingsChannel; savePerOrder: number }[] = [];
+	if (shopeeCogs !== null && shopeeCogs > localCogs + 1e-9) {
+		catalogVsMarketplaceSavings.push({
+			channel: 'shopee',
+			savePerOrder: Math.round((shopeeCogs - localCogs) * 100) / 100
+		});
+	}
+	if (lazadaCogs !== null && lazadaCogs > localCogs + 1e-9) {
+		catalogVsMarketplaceSavings.push({
+			channel: 'lazada',
+			savePerOrder: Math.round((lazadaCogs - localCogs) * 100) / 100
+		});
+	}
+	catalogVsMarketplaceSavings.sort((a, b) => b.savePerOrder - a.savePerOrder);
+
+	const cheaper: { channel: RecipeMarketSavingsChannel; savePerOrder: number }[] = [];
+	if (shopeeCogs !== null && localCogs > shopeeCogs + 1e-9) {
+		cheaper.push({
+			channel: 'shopee',
+			savePerOrder: Math.round((localCogs - shopeeCogs) * 100) / 100
+		});
+	}
+	if (lazadaCogs !== null && localCogs > lazadaCogs + 1e-9) {
+		cheaper.push({
+			channel: 'lazada',
+			savePerOrder: Math.round((localCogs - lazadaCogs) * 100) / 100
+		});
+	}
+	cheaper.sort((a, b) => b.savePerOrder - a.savePerOrder);
+
 	const market: { ch: RecipeMarketSavingsChannel; cogs: number }[] = [];
 	if (lazadaCogs !== null) market.push({ ch: 'lazada', cogs: lazadaCogs });
 	if (shopeeCogs !== null) market.push({ ch: 'shopee', cogs: shopeeCogs });
 
+	const emptySavings = {
+		localCogs,
+		shopeeCogs,
+		lazadaCogs,
+		savedPerOrder: null as number | null,
+		bestMarketplace: null as RecipeMarketSavingsChannel | null,
+		channelsCheaperThanCatalog: cheaper,
+		catalogVsMarketplaceSavings
+	};
+
 	if (market.length === 0) {
-		return { localCogs, shopeeCogs, lazadaCogs, savedPerOrder: null, bestMarketplace: null };
+		return emptySavings;
 	}
 
 	let best = market[0]!;
@@ -119,7 +166,7 @@ export function computeRecipeMarketIngredientSavingsVsCatalog(
 	}
 
 	if (best.cogs >= localCogs - 1e-9) {
-		return { localCogs, shopeeCogs, lazadaCogs, savedPerOrder: null, bestMarketplace: null };
+		return emptySavings;
 	}
 
 	const savedPerOrder = Math.round((localCogs - best.cogs) * 100) / 100;
@@ -128,7 +175,9 @@ export function computeRecipeMarketIngredientSavingsVsCatalog(
 		shopeeCogs,
 		lazadaCogs,
 		savedPerOrder: savedPerOrder > 0 ? savedPerOrder : null,
-		bestMarketplace: best.ch
+		bestMarketplace: best.ch,
+		channelsCheaperThanCatalog: cheaper,
+		catalogVsMarketplaceSavings
 	};
 }
 

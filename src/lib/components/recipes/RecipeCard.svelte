@@ -3,7 +3,6 @@
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 	import {
-		perOrderTotalCost,
 		computeRecipeMarketIngredientSavingsVsCatalog,
 		type RecipeMarketSavingsChannel
 	} from '$lib/utils/recipeCosting';
@@ -20,19 +19,30 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
-	const unitLoaded = $derived(perOrderTotalCost(recipe, masters, otherMasters));
 	const linesCount = $derived(recipe.ingredientLines.length + recipe.otherLines.length);
 	const ingSavings = $derived.by(() =>
 		computeRecipeMarketIngredientSavingsVsCatalog(recipe, masters, otherMasters)
 	);
 
+	/** Which sourcing column has the lowest ingredient COGS for this recipe (among values we have). */
+	const cheapestSource = $derived.by(() => {
+		type Key = 'catalog' | 'shopee' | 'lazada';
+		const opts: { key: Key; cogs: number }[] = [{ key: 'catalog', cogs: ingSavings.localCogs }];
+		if (ingSavings.shopeeCogs !== null) opts.push({ key: 'shopee', cogs: ingSavings.shopeeCogs });
+		if (ingSavings.lazadaCogs !== null) opts.push({ key: 'lazada', cogs: ingSavings.lazadaCogs });
+		let best = opts[0]!;
+		for (const o of opts.slice(1)) {
+			if (o.cogs < best.cogs - 1e-9) best = o;
+		}
+		return best.key;
+	});
+
 	function marketLabel(ch: RecipeMarketSavingsChannel): string {
 		return ch === 'lazada' ? 'Lazada' : 'Shopee';
 	}
 
-	function fmtListPrice(ch: 'local' | 'shopee' | 'lazada'): string {
-		const v = recipe.pricing[ch];
-		if (ch !== 'local' && (!Number.isFinite(v) || v <= 0)) return '—';
+	function fmtCogs(v: number | null): string {
+		if (v === null || !Number.isFinite(v) || v < 0) return '—';
 		return `₱${v.toFixed(2)}`;
 	}
 </script>
@@ -68,47 +78,113 @@
 		</div>
 
 		<div class="mt-6 flex flex-col gap-4">
-			<div class="flex items-end justify-between">
-				<p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Production Cost</p>
-				<p class="text-2xl font-bold tabular-nums text-zinc-900">₱{unitLoaded.toFixed(2)}</p>
+			{#if ingSavings.channelsCheaperThanCatalog.length > 0}
+				{@const lead = ingSavings.channelsCheaperThanCatalog[0]!}
+				<div
+					class="rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50 to-teal-50/90 p-4 shadow-sm ring-1 ring-emerald-100"
+					aria-live="polite"
+				>
+					<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+						Save on ingredients
+					</p>
+					<p class="mt-1 text-2xl font-bold tabular-nums tracking-tight text-emerald-950">
+						₱{lead.savePerOrder.toFixed(2)}
+						<span class="text-lg font-bold text-emerald-900"> / order</span>
+					</p>
+					<p class="mt-1 text-sm font-semibold text-emerald-900">
+						Cheaper on {marketLabel(lead.channel)} than your catalog COGS
+					</p>
+					{#if ingSavings.channelsCheaperThanCatalog.length > 1}
+						<p class="mt-2 text-[11px] leading-snug text-emerald-900/85">
+							Also beats catalog:
+							{#each ingSavings.channelsCheaperThanCatalog.slice(1) as row, i (row.channel)}
+								{#if i > 0}<span class="text-emerald-700/70"> · </span>{/if}
+								<span class="font-medium"
+									>{marketLabel(row.channel)} (−₱{row.savePerOrder.toFixed(2)})</span
+								>
+							{/each}
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="flex items-end justify-between gap-2">
+				<div>
+					<p class="text-[11px] font-bold uppercase tracking-widest text-zinc-400">Ingredient COGS</p>
+					<p class="mt-0.5 text-[10px] leading-snug text-zinc-500">
+						Per order — catalog unit costs vs scraped marketplace landed prices.
+					</p>
+				</div>
+				<p class="text-2xl font-bold tabular-nums text-zinc-900">
+					₱{ingSavings.localCogs.toFixed(2)}
+				</p>
 			</div>
 
 			<div class="grid grid-cols-3 gap-2">
-				<div class="flex flex-col gap-1 rounded-2xl bg-zinc-50 p-3 shadow-inner">
-					<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Local</p>
-					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('local')}</p>
+				<div
+					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'catalog'
+						? 'bg-zinc-100 ring-2 ring-zinc-400'
+						: 'bg-zinc-50'}"
+					title="Recipe lines × your catalog unit cost."
+				>
+					<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Catalog</p>
+					<p class="text-sm font-bold tabular-nums text-zinc-900">
+						{fmtCogs(ingSavings.localCogs)}
+					</p>
 				</div>
-				<div class="flex flex-col gap-1 rounded-2xl bg-emerald-50/80 p-3 shadow-inner ring-1 ring-emerald-100">
-					<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Shopee</p>
-					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('shopee')}</p>
+				<div
+					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'shopee'
+						? 'bg-emerald-100 ring-2 ring-emerald-500'
+						: 'bg-emerald-50/80 ring-1 ring-emerald-100'}"
+					title="Same recipe using Shopee landed ÷ base qty on every line."
+				>
+					<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Shopee</p>
+					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtCogs(ingSavings.shopeeCogs)}</p>
 				</div>
-				<div class="flex flex-col gap-1 rounded-2xl bg-sky-50/80 p-3 shadow-inner ring-1 ring-sky-100">
-					<p class="text-[10px] font-bold uppercase tracking-wider text-sky-600">Lazada</p>
-					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtListPrice('lazada')}</p>
+				<div
+					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'lazada'
+						? 'bg-sky-100 ring-2 ring-sky-500'
+						: 'bg-sky-50/80 ring-1 ring-sky-100'}"
+					title="Same recipe using Lazada landed ÷ base qty on every line."
+				>
+					<p class="text-[10px] font-bold uppercase tracking-wider text-sky-700">Lazada</p>
+					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtCogs(ingSavings.lazadaCogs)}</p>
 				</div>
 			</div>
 
 			<div
 				class="rounded-xl border border-zinc-200/80 bg-white/70 px-3 py-2.5 text-left shadow-inner ring-1 ring-zinc-100/80"
-				title="Ingredient COGS for one order: catalog (local package) vs Shopee/Lazada only when landed prices exist on every line in this recipe."
+				title="Sourcing comparison uses ingredient COGS only (not selling price with margin). Open costing for list prices."
 			>
-				<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Saved</p>
+				<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Summary · Savings</p>
 				{#if linesCount === 0}
 					<p class="mt-0.5 text-xs text-zinc-500">Add lines to compare sourcing.</p>
-				{:else if ingSavings.savedPerOrder !== null && ingSavings.bestMarketplace}
-					<p class="mt-0.5 text-sm font-bold tabular-nums text-emerald-700">
-						₱{ingSavings.savedPerOrder.toFixed(2)}
-						<span class="text-[11px] font-semibold text-zinc-600">
-							/ order vs catalog on {marketLabel(ingSavings.bestMarketplace)} landed</span
+				{:else if ingSavings.channelsCheaperThanCatalog.length > 0}
+					<p class="mt-0.5 text-xs leading-snug text-emerald-900">
+						Buying these ingredients on {marketLabel(ingSavings.channelsCheaperThanCatalog[0]!.channel)}
+						saves <span class="font-semibold tabular-nums"
+							>₱{ingSavings.channelsCheaperThanCatalog[0]!.savePerOrder.toFixed(2)}</span
 						>
+						per order vs your catalog COGS.
 					</p>
+				{:else if ingSavings.catalogVsMarketplaceSavings.length > 0}
+					<ul class="mt-0.5 list-none space-y-1 text-xs tabular-nums text-zinc-900">
+						{#each ingSavings.catalogVsMarketplaceSavings as row (row.channel)}
+							<li class="flex items-baseline justify-between gap-2 border-b border-zinc-100/90 pb-1 last:border-0 last:pb-0">
+								<span class="text-zinc-600">vs {marketLabel(row.channel)}</span>
+								<span class="font-bold text-emerald-800">save ₱{row.savePerOrder.toFixed(2)} / order</span>
+							</li>
+						{/each}
+					</ul>
 				{:else if ingSavings.shopeeCogs === null && ingSavings.lazadaCogs === null}
 					<p class="mt-0.5 text-xs leading-snug text-zinc-600">
-						Enter <span class="font-medium text-zinc-800">Shopee / Lazada landed package</span> totals on every ingredient
-						&amp; other used here to compare with local catalog COGS.
+						Add <span class="font-medium text-zinc-800">Shopee / Lazada landed</span> on every ingredient &amp; other
+						in this recipe to see savings.
 					</p>
 				{:else}
-					<p class="mt-0.5 text-xs text-zinc-600">No savings vs catalog — local package costs are lowest for this recipe.</p>
+					<p class="mt-0.5 text-xs leading-snug text-zinc-600">
+						Catalog and marketplace ingredient COGS match (no savings difference for this recipe).
+					</p>
 				{/if}
 			</div>
 		</div>
