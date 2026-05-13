@@ -2,7 +2,7 @@
 	import type { MeasureUnit } from '$lib/types/recipe';
 	import { MEASURE_UNIT_OPTIONS } from '$lib/state/ingredientCatalog.svelte';
 	import { addOtherMaster, computeOtherUnitCost } from '$lib/state/otherCatalog.svelte';
-import { toBaseQuantity } from '$lib/utils/baseUnitCost';
+	import { toBaseQuantity } from '$lib/utils/baseUnitCost';
 
 	let {
 		open = $bindable(false)
@@ -13,24 +13,24 @@ import { toBaseQuantity } from '$lib/utils/baseUnitCost';
 	let name = $state('');
 	let supplier = $state('');
 	let packagePrice = $state(0);
-let packageSize = $state(100);
+	let packageSize = $state(100);
 	let shippingFee = $state(0);
-let packageUnit = $state<MeasureUnit>('piece');
+	let packageUnit = $state<MeasureUnit>('piece');
 
 	let backdrop: HTMLDivElement | undefined = $state();
 
 	const previewUnitCost = $derived(
-	computeOtherUnitCost({ packagePrice, packageSize, packageUnit, shippingFee })
+		computeOtherUnitCost({ packagePrice, packageSize, packageUnit, shippingFee })
 	);
-const previewBase = $derived(toBaseQuantity(packageSize, packageUnit));
+	const previewBase = $derived(toBaseQuantity(packageSize, packageUnit));
 
 	function reset(): void {
 		name = '';
 		supplier = '';
 		packagePrice = 0;
-	packageSize = 100;
+		packageSize = 100;
 		shippingFee = 0;
-	packageUnit = 'piece';
+		packageUnit = 'piece';
 	}
 
 	function submit(e: Event): void {
@@ -40,9 +40,9 @@ const previewBase = $derived(toBaseQuantity(packageSize, packageUnit));
 			name: name.trim(),
 			supplier: supplier.trim(),
 			packagePrice,
-		packageSize,
-		packageUnit,
-			shippingFee,
+			packageSize,
+			packageUnit,
+			shippingFee
 		});
 		reset();
 		open = false;
@@ -75,20 +75,30 @@ const previewBase = $derived(toBaseQuantity(packageSize, packageUnit));
 		tabindex="-1"
 	>
 		<form
-			class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
+			class="max-h-[90vh] w-full max-w-lg overflow-hidden overflow-y-auto rounded-2xl border border-zinc-200 bg-white shadow-2xl"
 			onsubmit={submit}
 		>
-			<div class="flex items-start justify-between gap-3">
-				<h2 id="add-other-title" class="text-lg font-semibold text-zinc-900">Add other / packaging</h2>
-				<button type="button" class="text-zinc-500 hover:text-zinc-800" onclick={() => (open = false)} aria-label="Close">
-					×
-				</button>
+			<div class="bg-zinc-900 px-5 pb-5 pt-5 text-white sm:px-6 sm:pb-6 sm:pt-6">
+				<div class="flex items-start justify-between gap-4">
+					<div class="min-w-0">
+						<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Catalog</p>
+						<h2 id="add-other-title" class="mt-1 text-xl font-bold tracking-tight">Add other / packaging</h2>
+						<p class="mt-2 text-sm leading-relaxed text-zinc-400">
+							Package price, size, shipping, and unit — same flow as adding a line on a recipe.
+						</p>
+					</div>
+					<button
+						type="button"
+						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg leading-none text-zinc-400 transition hover:bg-white/10 hover:text-white"
+						onclick={() => (open = false)}
+						aria-label="Close"
+					>
+						×
+					</button>
+				</div>
 			</div>
-			<p class="mt-1 text-sm text-zinc-500">
-				Enter package details (e.g. 1 pack, 100 pieces). System computes base quantity and unit cost.
-			</p>
 
-			<div class="mt-5 space-y-3">
+			<div class="space-y-3 p-6">
 				<div>
 					<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-name">Item</label>
 					<input
@@ -165,22 +175,22 @@ const previewBase = $derived(toBaseQuantity(packageSize, packageUnit));
 					<strong class="ml-2 tabular-nums text-sky-950">₱{previewUnitCost.toFixed(4)}</strong>
 					<span class="text-sky-800"> / base unit</span>
 				</div>
-			</div>
 
-			<div class="mt-6 flex gap-2">
-				<button
-					type="button"
-					class="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm font-medium hover:bg-zinc-50"
-					onclick={() => (open = false)}
-				>
-					Cancel
-				</button>
-				<button
-					type="submit"
-					class="flex-1 rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
-				>
-					Save
-				</button>
+				<div class="flex gap-2 border-t border-zinc-100 pt-5">
+					<button
+						type="button"
+						class="flex-1 rounded-xl border border-zinc-200 bg-white py-2.5 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-50"
+						onclick={() => (open = false)}
+					>
+						Cancel
+					</button>
+					<button
+						type="submit"
+						class="flex-1 rounded-xl bg-sky-600 py-2.5 text-sm font-bold text-white shadow-md hover:bg-sky-500"
+					>
+						Save
+					</button>
+				</div>
 			</div>
 		</form>
 	</div>

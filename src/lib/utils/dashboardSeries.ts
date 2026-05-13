@@ -1,4 +1,7 @@
 import type { MonthlyFinancialSnapshot } from '$lib/types/statistics';
+import {
+	pickLatestSnapshotPerYearMonth
+} from '$lib/utils/summaryPeriodKpis';
 import type { LiveMonthKpis } from '$lib/utils/dashboardFinance';
 
 export interface MonthlySeriesPoint {
@@ -22,7 +25,8 @@ export function buildMonthlySeries(
 	maxPoints: number
 ): MonthlySeriesPoint[] {
 	const byMonth = new Map<string, MonthlySeriesPoint>();
-	for (const r of savedRows) {
+	const collapsedSaved = pickLatestSnapshotPerYearMonth(savedRows);
+	for (const r of collapsedSaved) {
 		byMonth.set(r.yearMonth, {
 			yearMonth: r.yearMonth,
 			revenue: r.totalRevenue,

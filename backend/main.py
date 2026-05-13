@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from pydantic import BaseModel
@@ -51,6 +51,64 @@ from schemas import (
 
 app = FastAPI(title="PriceWise Backend", version="2.0.0")
 Base.metadata.create_all(bind=engine)
+
+
+def _migrate_monthly_snapshots_allow_duplicates() -> None:
+    """Allow multiple Summary saves for the same calendar month (drop legacy unique on user_id+year_month)."""
+    with engine.begin() as conn:
+        dialect = conn.dialect.name
+        if dialect == "postgresql":
+            conn.execute(
+                text(
+                    "ALTER TABLE monthly_financial_snapshots DROP CONSTRAINT IF EXISTS uq_monthly_snap_user_month"
+                )
+            )
+        elif dialect == "sqlite":
+            tbl = "monthly_financial_snapshots"
+            exists = conn.execute(
+                text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"), {"n": tbl}
+            ).scalar()
+            if not exists:
+                pass
+            else:
+                ddl = conn.execute(
+                    text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:n"), {"n": tbl}
+                ).scalar_one_or_none()
+                if ddl and "UNIQUE" in ddl.upper():
+                    mig = f"{tbl}_dedupe_mig"
+                    conn.execute(text(f"DROP TABLE IF EXISTS {mig}"))
+                    conn.execute(
+                        text(
+                            f"""
+                            CREATE TABLE {mig} (
+                              id INTEGER NOT NULL PRIMARY KEY,
+                              user_id INTEGER NOT NULL,
+                              year_month VARCHAR(7) NOT NULL,
+                              total_opex REAL NOT NULL,
+                              total_revenue REAL NOT NULL,
+                              gross_profit REAL NOT NULL,
+                              net_profit REAL NOT NULL,
+                              profit_margin_pct REAL NOT NULL,
+                              best_supplier VARCHAR(255) NOT NULL,
+                              generated_at DATETIME NOT NULL,
+                              recipe_breakdown TEXT,
+                              FOREIGN KEY(user_id) REFERENCES users (id)
+                            )
+                            """
+                        )
+                    )
+                    conn.execute(text(f"INSERT INTO {mig} SELECT * FROM {tbl}"))
+                    conn.execute(text(f"DROP TABLE {tbl}"))
+                    conn.execute(text(f"ALTER TABLE {mig} RENAME TO {tbl}"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_monthly_snapshots_user_year_month "
+                "ON monthly_financial_snapshots (user_id, year_month)"
+            )
+        )
+
+
+_migrate_monthly_snapshots_allow_duplicates()
 
 # Bearer tokens are sent via Authorization header (not cookies), so allow_origins=["*"]
 # avoids brittle CORS when Origin is localhost vs 127.0.0.1 vs LAN IP during dev.
@@ -184,13 +242,16 @@ def list_monthly_summaries(db: Session = Depends(get_db), current_user: User = D
     rows = db.scalars(
         select(MonthlyFinancialSnapshot)
         .where(MonthlyFinancialSnapshot.user_id == current_user.id)
-        .order_by(MonthlyFinancialSnapshot.year_month.asc())
+        .order_by(
+            MonthlyFinancialSnapshot.year_month.asc(),
+            MonthlyFinancialSnapshot.generated_at.asc(),
+        )
     ).all()
     return [MonthlySnapshotOut.model_validate(r) for r in rows]
 
 
 @app.post("/monthly-summaries", response_model=MonthlySnapshotOut)
-def upsert_monthly_summary(
+def create_monthly_summary(
     payload: MonthlySnapshotCreateIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -199,26 +260,7 @@ def upsert_monthly_summary(
     if payload.recipe_breakdown is not None:
         breakdown_dump = [x.model_dump() for x in payload.recipe_breakdown]
 
-    existing = db.scalar(
-        select(MonthlyFinancialSnapshot).where(
-            MonthlyFinancialSnapshot.user_id == current_user.id,
-            MonthlyFinancialSnapshot.year_month == payload.year_month,
-        )
-    )
     now = datetime.utcnow()
-    if existing:
-        existing.total_opex = payload.total_opex
-        existing.total_revenue = payload.total_revenue
-        existing.gross_profit = payload.gross_profit
-        existing.net_profit = payload.net_profit
-        existing.profit_margin_pct = payload.profit_margin_pct
-        existing.best_supplier = payload.best_supplier.strip()
-        existing.generated_at = now
-        existing.recipe_breakdown = breakdown_dump
-        db.commit()
-        db.refresh(existing)
-        return MonthlySnapshotOut.model_validate(existing)
-
     row = MonthlyFinancialSnapshot(
         user_id=current_user.id,
         year_month=payload.year_month,

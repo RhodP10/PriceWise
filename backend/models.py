@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -43,7 +43,8 @@ class MonthlyFinancialSnapshot(Base):
     """Saved month row from Summary → Statistics (per user)."""
 
     __tablename__ = "monthly_financial_snapshots"
-    __table_args__ = (UniqueConstraint("user_id", "year_month", name="uq_monthly_snap_user_month"),)
+    __table_args__ = (Index("ix_monthly_snapshots_user_year_month", "user_id", "year_month"),)
+    # Multiple saves per calendar month are allowed; distinguish rows by id + generated_at.
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)

@@ -328,7 +328,7 @@
 							<th class="px-6 py-4 text-right">Pkg Price</th>
 							<th class="px-6 py-4 text-right">Size</th>
 							<th class="px-6 py-4">Unit</th>
-							<th class="px-6 py-4 text-right">Ship Fee</th>
+							<th class="px-6 py-4 text-right">Shipping fee</th>
 							<th class="px-6 py-4 text-right">Unit Cost</th>
 							<th class="px-6 py-4 text-right">Actions</th>
 						</tr>

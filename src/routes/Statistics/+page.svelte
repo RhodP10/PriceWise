@@ -17,6 +17,12 @@
 	} from '$lib/utils/dashboardFinance';
 	import { buildMonthlySeries, pctChange } from '$lib/utils/dashboardSeries';
 	import {
+		addCalendarMonths,
+		kpisFromSnapshotRow,
+		latestSnapshotForYearMonth,
+		rollupYearFromSummaries
+	} from '$lib/utils/summaryPeriodKpis';
+	import {
 		avgLandedByChannel,
 		avgPctCheaperThan,
 		bestSupplierLabel,
@@ -50,18 +56,6 @@
 	const avgLocal = $derived(averageChannelPrice(recipes, 'local'));
 	const avgShopee = $derived(averageChannelPrice(recipes, 'shopee'));
 	const avgLazada = $derived(averageChannelPrice(recipes, 'lazada'));
-	const momNet = $derived.by(() => {
-		const pts = series;
-		if (pts.length < 2) return null;
-		const a = pts[pts.length - 2]!.netProfit;
-		const b = pts[pts.length - 1]!.netProfit;
-		return pctChange(a, b);
-	});
-	const momRev = $derived.by(() => {
-		const pts = series;
-		if (pts.length < 2) return null;
-		return pctChange(pts[pts.length - 2]!.revenue, pts[pts.length - 1]!.revenue);
-	});
 
 	const costTrendPct = $derived.by(() => {
 		const pts = series;
@@ -69,6 +63,92 @@
 		const a = pts[pts.length - 2]!.revenue - pts[pts.length - 2]!.netProfit;
 		const b = pts[pts.length - 1]!.revenue - pts[pts.length - 1]!.netProfit;
 		return pctChange(a, b);
+	});
+
+	let kpiScope = $state<'monthly' | 'yearly'>('monthly');
+	let kpiYearMonth = $state('');
+	let kpiYear = $state('');
+
+	const defaultKpiYearMonth = $derived.by(() => {
+		const rows = monthlySummaryStore.rows;
+		if (rows.length === 0) return live.yearMonth;
+		return [...rows].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))[0]!.yearMonth;
+	});
+
+	const defaultKpiYear = $derived.by(() => {
+		const rows = monthlySummaryStore.rows;
+		if (rows.length === 0) return live.yearMonth.slice(0, 4);
+		return [...rows].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))[0]!.yearMonth.slice(0, 4);
+	});
+
+	const effectiveKpiYearMonth = $derived(kpiYearMonth.trim() || defaultKpiYearMonth);
+	const effectiveKpiYear = $derived(kpiYear.trim() || defaultKpiYear);
+
+	const summaryKpis = $derived.by(() => {
+		const rows = monthlySummaryStore.rows;
+		if (kpiScope === 'monthly') {
+			return kpisFromSnapshotRow(latestSnapshotForYearMonth(rows, effectiveKpiYearMonth));
+		}
+		return rollupYearFromSummaries(rows, effectiveKpiYear);
+	});
+
+	const kpiMonthOptions = $derived.by(() => {
+		const seen = new Set<string>();
+		const list: string[] = [];
+		for (const r of monthlySummaryStore.rows) {
+			if (!seen.has(r.yearMonth)) {
+				seen.add(r.yearMonth);
+				list.push(r.yearMonth);
+			}
+		}
+		return list.sort((a, b) => b.localeCompare(a));
+	});
+
+	const kpiYearOptions = $derived.by(() => {
+		const ys = new Set<string>();
+		for (const r of monthlySummaryStore.rows) ys.add(r.yearMonth.slice(0, 4));
+		ys.add(live.yearMonth.slice(0, 4));
+		return [...ys].sort((a, b) => b.localeCompare(a));
+	});
+
+	const summaryMomNet = $derived.by(() => {
+		if (kpiScope !== 'monthly') return null;
+		const rows = monthlySummaryStore.rows;
+		const prevYm = addCalendarMonths(effectiveKpiYearMonth, -1);
+		const cur = latestSnapshotForYearMonth(rows, effectiveKpiYearMonth);
+		const prev = latestSnapshotForYearMonth(rows, prevYm);
+		if (!cur || !prev) return null;
+		return pctChange(prev.netProfit, cur.netProfit);
+	});
+
+	const summaryMomRev = $derived.by(() => {
+		if (kpiScope !== 'monthly') return null;
+		const rows = monthlySummaryStore.rows;
+		const prevYm = addCalendarMonths(effectiveKpiYearMonth, -1);
+		const cur = latestSnapshotForYearMonth(rows, effectiveKpiYearMonth);
+		const prev = latestSnapshotForYearMonth(rows, prevYm);
+		if (!cur || !prev) return null;
+		return pctChange(prev.totalRevenue, cur.totalRevenue);
+	});
+
+	const summaryYoyNet = $derived.by(() => {
+		if (kpiScope !== 'yearly') return null;
+		const rows = monthlySummaryStore.rows;
+		const prevY = String(Number(effectiveKpiYear) - 1);
+		const cur = rollupYearFromSummaries(rows, effectiveKpiYear);
+		const prev = rollupYearFromSummaries(rows, prevY);
+		if (!cur.hasData || !prev.hasData) return null;
+		return pctChange(prev.netProfit, cur.netProfit);
+	});
+
+	const summaryYoyRev = $derived.by(() => {
+		if (kpiScope !== 'yearly') return null;
+		const rows = monthlySummaryStore.rows;
+		const prevY = String(Number(effectiveKpiYear) - 1);
+		const cur = rollupYearFromSummaries(rows, effectiveKpiYear);
+		const prev = rollupYearFromSummaries(rows, prevY);
+		if (!cur.hasData || !prev.hasData) return null;
+		return pctChange(prev.totalRevenue, cur.totalRevenue);
 	});
 
 	let search = $state('');
@@ -89,7 +169,10 @@
 	});
 
 	function requestDeleteSnapshot(r: MonthlyFinancialSnapshot): void {
-		deleteSnapshotTarget = { id: r.id, label: r.yearMonth };
+		deleteSnapshotTarget = {
+			id: r.id,
+			label: `${r.yearMonth} · ${new Date(r.generatedAt).toLocaleString()}`
+		};
 	}
 
 	async function executeDeleteSnapshot(): Promise<void> {
@@ -109,7 +192,11 @@
 	}
 
 	const tableRows = $derived(
-		[...monthlySummaryStore.rows].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
+		[...monthlySummaryStore.rows].sort((a, b) => {
+			const ym = b.yearMonth.localeCompare(a.yearMonth);
+			if (ym !== 0) return ym;
+			return b.generatedAt.localeCompare(a.generatedAt);
+		})
 	);
 
 	const filteredRows = $derived.by(() => {
@@ -241,8 +328,8 @@
 					Statistics <span class="text-violet-400">Analytics</span>
 				</h1>
 				<p class="text-lg text-zinc-400">
-					Monthly financials from your Summary inputs (orders × Local price, COGS, OPEX), supplier channel mix on
-					ingredients, and saved month history.
+					Financial KPIs from saved Summary snapshots (with month vs year roll-ups), supplier channel mix on
+					ingredients, and full save history — including multiple saves per month (use Generated to tell them apart).
 				</p>
 			</div>
 			<div class="flex flex-wrap gap-2 print:hidden">
@@ -272,55 +359,154 @@
 	</div>
 
 	<div class="glass overflow-hidden rounded-3xl shadow-xl">
+		<div class="border-b border-zinc-200/60 bg-zinc-50/50 px-4 py-3 sm:px-6 print:hidden">
+			<div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">KPI period</span>
+					<div class="flex rounded-lg bg-zinc-200/80 p-0.5 ring-1 ring-zinc-200/60">
+						<button
+							type="button"
+							class="rounded-md px-3 py-1.5 text-xs font-bold transition {kpiScope === 'monthly'
+								? 'bg-white text-violet-900 shadow-sm'
+								: 'text-zinc-600 hover:text-zinc-900'}"
+							onclick={() => (kpiScope = 'monthly')}
+						>
+							Month
+						</button>
+						<button
+							type="button"
+							class="rounded-md px-3 py-1.5 text-xs font-bold transition {kpiScope === 'yearly'
+								? 'bg-white text-violet-900 shadow-sm'
+								: 'text-zinc-600 hover:text-zinc-900'}"
+							onclick={() => (kpiScope = 'yearly')}
+						>
+							Year
+						</button>
+					</div>
+				</div>
+				{#if kpiScope === 'monthly'}
+					<label class="flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+						<span class="font-medium">Calendar month</span>
+						<select
+							bind:value={kpiYearMonth}
+							class="min-w-[10rem] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm shadow-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
+						>
+							<option value="">Latest (auto)</option>
+							{#each kpiMonthOptions as ym (ym)}
+								<option value={ym}>{ym}</option>
+							{/each}
+						</select>
+					</label>
+				{:else}
+					<label class="flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+						<span class="font-medium">Calendar year</span>
+						<select
+							bind:value={kpiYear}
+							class="min-w-[8rem] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm shadow-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
+						>
+							<option value="">Latest (auto)</option>
+							{#each kpiYearOptions as y (y)}
+								<option value={y}>{y}</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
+			</div>
+			<p class="mt-2 text-[11px] leading-relaxed text-zinc-600">
+				<strong class="text-zinc-800">Month</strong> uses the latest Summary save for that month (duplicates share the
+				same month label — check <strong class="text-zinc-800">Generated</strong> in the table).
+				<strong class="text-zinc-800">Year</strong> sums those “latest per month” values across all months in that
+				calendar year.
+			</p>
+		</div>
 		<div class="grid divide-y divide-zinc-200/50 sm:grid-cols-2 lg:grid-cols-5 lg:divide-x lg:divide-y-0">
 			<div class="px-5 py-5 sm:px-6">
-				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly OPEX</p>
-				<p class="mt-1 text-xl font-bold tabular-nums text-zinc-900">{fmt(live.totalOpex)}</p>
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+					{kpiScope === 'monthly' ? 'OPEX' : 'OPEX (year)'}
+				</p>
+				<p class="mt-0.5 text-[10px] font-medium text-zinc-400">
+					{kpiScope === 'monthly' ? effectiveKpiYearMonth : effectiveKpiYear}
+				</p>
+				<p class="mt-1 text-xl font-bold tabular-nums text-zinc-900">{fmt(summaryKpis.totalOpex)}</p>
 			</div>
 			<div class="px-5 py-5 sm:px-6">
-				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly revenue</p>
-				<p class="mt-1 text-xl font-bold tabular-nums text-zinc-900">{fmt(live.totalRevenue)}</p>
-				{#if momRev !== null}
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+					{kpiScope === 'monthly' ? 'Revenue' : 'Revenue (year)'}
+				</p>
+				<p class="mt-0.5 text-[10px] font-medium text-zinc-400">
+					{kpiScope === 'monthly' ? effectiveKpiYearMonth : effectiveKpiYear}
+				</p>
+				<p class="mt-1 text-xl font-bold tabular-nums text-zinc-900">{fmt(summaryKpis.totalRevenue)}</p>
+				{#if kpiScope === 'monthly' && summaryMomRev !== null}
 					<p
 						class="mt-1 text-xs font-medium tabular-nums"
-						class:text-emerald-700={momRev >= 0}
-						class:text-red-600={momRev < 0}
+						class:text-emerald-700={summaryMomRev >= 0}
+						class:text-red-600={summaryMomRev < 0}
 					>
-						{momRev >= 0 ? '▲' : '▼'} {Math.abs(momRev).toFixed(1)}% vs prior month
+						{summaryMomRev >= 0 ? '▲' : '▼'} {Math.abs(summaryMomRev).toFixed(1)}% vs prior month
+					</p>
+				{:else if kpiScope === 'yearly' && summaryYoyRev !== null}
+					<p
+						class="mt-1 text-xs font-medium tabular-nums"
+						class:text-emerald-700={summaryYoyRev >= 0}
+						class:text-red-600={summaryYoyRev < 0}
+					>
+						{summaryYoyRev >= 0 ? '▲' : '▼'} {Math.abs(summaryYoyRev).toFixed(1)}% vs prior year
 					</p>
 				{/if}
 			</div>
 			<div class="px-5 py-5 sm:px-6">
-				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Gross profit</p>
-				<p class="mt-1 text-xl font-bold tabular-nums text-emerald-800">{fmt(live.grossProfit)}</p>
+				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+					{kpiScope === 'monthly' ? 'Gross profit' : 'Gross profit (year)'}
+				</p>
+				<p class="mt-0.5 text-[10px] font-medium text-zinc-400">
+					{kpiScope === 'monthly' ? effectiveKpiYearMonth : effectiveKpiYear}
+				</p>
+				<p class="mt-1 text-xl font-bold tabular-nums text-emerald-800">{fmt(summaryKpis.grossProfit)}</p>
 			</div>
 			<div class="bg-emerald-50/50 px-5 py-5 sm:px-6">
-				<p class="text-[11px] font-bold uppercase tracking-wider text-emerald-900">Net profit</p>
+				<p class="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
+					{kpiScope === 'monthly' ? 'Net profit' : 'Net profit (year)'}
+				</p>
+				<p class="mt-0.5 text-[10px] font-medium text-emerald-800/80">
+					{kpiScope === 'monthly' ? effectiveKpiYearMonth : effectiveKpiYear}
+				</p>
 				<p
 					class="mt-1 text-xl font-bold tabular-nums"
-					class:text-red-700={live.netProfit < 0}
-					class:text-emerald-900={live.netProfit >= 0}
+					class:text-red-700={summaryKpis.netProfit < 0}
+					class:text-emerald-900={summaryKpis.netProfit >= 0}
 				>
-					{fmt(live.netProfit)}
+					{fmt(summaryKpis.netProfit)}
 				</p>
-				{#if momNet !== null}
+				{#if kpiScope === 'monthly' && summaryMomNet !== null}
 					<p
 						class="mt-1 text-xs font-medium tabular-nums"
-						class:text-emerald-700={momNet >= 0}
-						class:text-red-600={momNet < 0}
+						class:text-emerald-700={summaryMomNet >= 0}
+						class:text-red-600={summaryMomNet < 0}
 					>
-						{momNet >= 0 ? '▲' : '▼'} {Math.abs(momNet).toFixed(1)}% vs prior month
+						{summaryMomNet >= 0 ? '▲' : '▼'} {Math.abs(summaryMomNet).toFixed(1)}% vs prior month
+					</p>
+				{:else if kpiScope === 'yearly' && summaryYoyNet !== null}
+					<p
+						class="mt-1 text-xs font-medium tabular-nums"
+						class:text-emerald-700={summaryYoyNet >= 0}
+						class:text-red-600={summaryYoyNet < 0}
+					>
+						{summaryYoyNet >= 0 ? '▲' : '▼'} {Math.abs(summaryYoyNet).toFixed(1)}% vs prior year
 					</p>
 				{/if}
 			</div>
 			<div class="px-5 py-5 sm:px-6 sm:col-span-2 lg:col-span-1">
 				<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Profit margin</p>
+				<p class="mt-0.5 text-[10px] font-medium text-zinc-400">
+					{kpiScope === 'monthly' ? effectiveKpiYearMonth : `${effectiveKpiYear} roll-up`}
+				</p>
 				<p
 					class="mt-1 text-xl font-bold tabular-nums"
-					class:text-red-700={live.profitMarginPct < 0}
-					class:text-emerald-900={live.profitMarginPct >= 0}
+					class:text-red-700={summaryKpis.profitMarginPct < 0}
+					class:text-emerald-900={summaryKpis.profitMarginPct >= 0}
 				>
-					{live.profitMarginPct.toFixed(1)}%
+					{summaryKpis.hasData ? `${summaryKpis.profitMarginPct.toFixed(1)}%` : '—'}
 				</p>
 			</div>
 		</div>

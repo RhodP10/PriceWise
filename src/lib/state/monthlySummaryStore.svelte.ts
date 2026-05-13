@@ -26,8 +26,18 @@ export function upsertMonthlySnapshot(
 		generatedAt,
 		...(row.recipeBreakdown !== undefined ? { recipeBreakdown: row.recipeBreakdown } : {})
 	};
-	const without = monthlySummaryStore.rows.filter((r) => r.yearMonth !== row.yearMonth);
-	monthlySummaryStore.rows = [...without, next].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+	const idx = monthlySummaryStore.rows.findIndex((r) => r.id === next.id);
+	const merged =
+		idx >= 0
+			? monthlySummaryStore.rows.map((r, i) => (i === idx ? next : r))
+			: [...monthlySummaryStore.rows, next];
+	monthlySummaryStore.rows = [...merged].sort((a, b) => {
+		const ym = a.yearMonth.localeCompare(b.yearMonth);
+		if (ym !== 0) return ym;
+		const g = a.generatedAt.localeCompare(b.generatedAt);
+		if (g !== 0) return g;
+		return a.id.localeCompare(b.id, undefined, { numeric: true });
+	});
 }
 
 export function deleteMonthlySnapshot(id: string): void {
@@ -35,7 +45,11 @@ export function deleteMonthlySnapshot(id: string): void {
 }
 
 export function replaceMonthlySummariesFromApi(next: MonthlyFinancialSnapshot[]): void {
-	monthlySummaryStore.rows = structuredClone(next).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+	monthlySummaryStore.rows = structuredClone(next).sort((a, b) => {
+		const ym = a.yearMonth.localeCompare(b.yearMonth);
+		if (ym !== 0) return ym;
+		return a.generatedAt.localeCompare(b.generatedAt);
+	});
 }
 
 export function resetMonthlySummaryStore(): void {

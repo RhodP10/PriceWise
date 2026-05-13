@@ -53,7 +53,7 @@
 					<th class="px-6 py-4 text-right">{channelLabel} Pkg ₱</th>
 					<th class="px-6 py-4 text-right">Size</th>
 					<th class="px-6 py-4">Unit</th>
-					<th class="px-6 py-4 text-right">Ship Fee</th>
+					<th class="px-6 py-4 text-right">Shipping fee</th>
 					<th class="px-6 py-4 text-right">Base Qty</th>
 					<th class="px-6 py-4">Base Unit</th>
 					<th class="px-6 py-4 text-right">{channelLabel} Unit ₱</th>
