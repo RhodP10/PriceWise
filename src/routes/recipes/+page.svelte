@@ -58,7 +58,7 @@
 	}
 </script>
 
-<section class="animate-in relative space-y-8 pb-32">
+<section class="animate-in relative space-y-8 pb-10">
 	<!-- Premium Header Section -->
 	<div class="relative overflow-hidden rounded-3xl bg-zinc-900 p-8 text-white shadow-2xl lg:p-12">
 		<div class="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-orange-500/20 blur-3xl"></div>
@@ -74,7 +74,7 @@
 				</p>
 			</div>
 
-			<div class="flex w-full max-w-sm shrink-0 flex-col gap-3">
+			<div class="flex w-full shrink-0 flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
 				<div class="relative">
 					<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
 						<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -84,9 +84,17 @@
 						type="search"
 						bind:value={search}
 						placeholder="Search recipes…"
-						class="w-full rounded-2xl border-none bg-zinc-800/50 py-3 pl-10 pr-4 text-white placeholder-zinc-500 ring-1 ring-white/10 transition-all focus:bg-zinc-800 focus:ring-2 focus:ring-orange-500"
+						class="w-full min-w-[min(100%,280px)] rounded-2xl border-none bg-zinc-800/50 py-3 pl-10 pr-4 text-white placeholder-zinc-500 ring-1 ring-white/10 transition-all focus:bg-zinc-800 focus:ring-2 focus:ring-orange-500 sm:max-w-xs"
 					/>
 				</div>
+				<button
+					type="button"
+					class="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-orange-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-orange-900/25 transition-all hover:bg-orange-500 hover:-translate-y-0.5"
+					onclick={onFabAddRecipe}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+					Add recipe
+				</button>
 			</div>
 		</div>
 	</div>
@@ -100,16 +108,10 @@
 				{recipeStore.recipes.length === 0 ? 'No recipes yet' : 'No matches found'}
 			</h3>
 			<p class="mt-1 text-sm text-zinc-500">
-				{recipeStore.recipes.length === 0 ? 'Start your culinary journey by adding your first recipe.' : `No recipes match “${search.trim()}”.`}
+				{recipeStore.recipes.length === 0
+					? 'Use Add recipe in the header above to create your first one.'
+					: `No recipes match “${search.trim()}”. Try another search or tap Add recipe in the header.`}
 			</p>
-			{#if recipeStore.recipes.length === 0}
-				<button
-					onclick={onFabAddRecipe}
-					class="mt-6 rounded-xl bg-zinc-900 px-6 py-2.5 text-sm font-bold text-white shadow-lg transition-transform hover:scale-105"
-				>
-					Create First Recipe
-				</button>
-			{/if}
 		</div>
 	{:else}
 		<div class="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
@@ -123,15 +125,6 @@
 		</div>
 	{/if}
 </section>
-
-<button
-	type="button"
-	class="fixed bottom-8 right-8 z-30 flex h-16 w-16 items-center justify-center rounded-full bg-orange-600 text-white shadow-2xl ring-4 ring-white transition-all hover:scale-110 hover:bg-orange-500 active:scale-95"
-	onclick={onFabAddRecipe}
-	aria-label="Add recipe"
->
-	<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-</button>
 
 <NewRecipeQuickModal open={quickAddOpen} onAdd={onConfirmAddRecipe} onClose={closeQuickRecipe} />
 

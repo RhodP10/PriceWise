@@ -265,7 +265,7 @@
 		<div class="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
 			<div class="space-y-2">
 				<h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
-					Others <span class="text-sky-400">Catalog</span>
+					Others <span class="text-sky-400">Local</span>
 				</h1>
 				<p class="max-w-2xl text-lg text-zinc-400">
 					Manage packaging, disposable items, and other non-ingredient components of your recipes.

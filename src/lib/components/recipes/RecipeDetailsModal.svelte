@@ -9,6 +9,7 @@
 	import {
 		addRecipeIngredientLine,
 		addRecipeOtherLine,
+		deleteRecipe,
 		deleteRecipeIngredientLine,
 		deleteRecipeOtherLine,
 		updateRecipeIngredientLine,
@@ -49,6 +50,8 @@
 		| null
 	>(null);
 
+	let pendingRecipeDelete = $state(false);
+
 	type CombinedRow =
 		| { kind: 'ingredient'; line: RecipeDTO['ingredientLines'][number] }
 		| { kind: 'other'; line: RecipeDTO['otherLines'][number] };
@@ -85,6 +88,14 @@
 		pendingLineRemove = null;
 	}
 
+	function executeRecipeDelete(): void {
+		if (!recipe) return;
+		deleteRecipe(recipe.id);
+		pendingRecipeDelete = false;
+		pendingLineRemove = null;
+		onClose();
+	}
+
 	$effect(() => {
 		if (open && recipe && openedRecipeId !== recipe.id) {
 			openedRecipeId = recipe.id;
@@ -101,6 +112,7 @@
 		if (!open) {
 			quickAddIngredientOpen = false;
 			quickAddOtherOpen = false;
+			pendingRecipeDelete = false;
 		}
 	});
 
@@ -146,12 +158,16 @@
 	}
 
 	function onBackdropMouseDown(e: MouseEvent): void {
-		if (quickAddIngredientOpen || quickAddOtherOpen) return;
+		if (quickAddIngredientOpen || quickAddOtherOpen || pendingRecipeDelete) return;
 		if (e.target === backdrop) onClose();
 	}
 
 	function onKeydown(e: KeyboardEvent): void {
 		if (e.key === 'Escape') {
+			if (pendingRecipeDelete) {
+				pendingRecipeDelete = false;
+				return;
+			}
 			if (quickAddIngredientOpen || quickAddOtherOpen) return;
 			onClose();
 		}
@@ -478,6 +494,20 @@
 						{/if}
 					</div>
 
+					<div class="mt-4 rounded-2xl border border-red-200/80 bg-red-50/50 px-4 py-3 sm:px-5">
+						<p class="text-[10px] font-bold uppercase tracking-wider text-red-800">Danger zone</p>
+						<p class="mt-1 text-xs leading-snug text-red-900/85">
+							Delete this recipe and all its lines here. Your catalog ingredients and others are not removed.
+						</p>
+						<button
+							type="button"
+							class="mt-2 rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 shadow-sm transition hover:bg-red-50"
+							onclick={() => (pendingRecipeDelete = true)}
+						>
+							Delete entire recipe
+						</button>
+					</div>
+
 					<div
 						class="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs shadow-sm sm:grid-cols-3"
 					>
@@ -664,4 +694,15 @@
 	description={pendingLineRemove ? `Remove “${pendingLineRemove.label}” from this recipe.` : ''}
 	onClose={() => (pendingLineRemove = null)}
 	onConfirm={executeLineRemove}
+/>
+
+<TypeToConfirmDeleteModal
+	open={pendingRecipeDelete}
+	title="Delete this recipe?"
+	description={recipe
+		? `This removes “${recipe.name}” and every ingredient / other line in it. Type delete to confirm.`
+		: ''}
+	confirmPhrase="delete"
+	onClose={() => (pendingRecipeDelete = false)}
+	onConfirm={executeRecipeDelete}
 />
