@@ -19,6 +19,7 @@
 		type MarketplaceListingSubmitResult
 	} from '$lib/utils/marketplaceJsonImport';
 	import type { ChannelMarketplace, IngredientMasterDTO, MeasureUnit } from '$lib/types/recipe';
+	import { formatCatalogDateShort, lastCostLogIso } from '$lib/utils/catalogDisplay';
 
 	let search = $state('');
 	let addModalOpen = $state(false);
@@ -269,6 +270,8 @@
 				</h1>
 				<p class="max-w-2xl text-lg text-zinc-400">
 					Manage your master list of ingredients, track local supplier prices, and sync with marketplace data.
+					<span class="text-zinc-300">Added / price log</span> (compact column) feeds
+					<a href="/smart-pricing" class="font-semibold text-emerald-400 underline-offset-2 hover:underline">Smart Pricing</a>.
 				</p>
 			</div>
 
@@ -319,104 +322,115 @@
 
 	{#if activeTab === 'local'}
 		<div class="glass overflow-hidden rounded-3xl shadow-xl transition-all">
-			<div class="overflow-x-auto">
-				<table class="w-full min-w-[1000px] text-left text-sm">
+			<div class="w-full overflow-hidden">
+				<table class="w-full table-fixed border-collapse text-left text-xs sm:text-sm">
 					<thead>
-						<tr class="border-b border-zinc-200/50 bg-zinc-50/50 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-							<th class="px-6 py-4">Ingredient</th>
-							<th class="px-6 py-4">Supplier</th>
-							<th class="px-6 py-4 text-right">Pkg Price</th>
-							<th class="px-6 py-4 text-right">Size</th>
-							<th class="px-6 py-4">Unit</th>
-							<th class="px-6 py-4 text-right">Shipping fee</th>
-							<th class="px-6 py-4 text-right">Unit Cost</th>
-							<th class="px-6 py-4 text-right">Actions</th>
+						<tr class="border-b border-zinc-200/50 bg-zinc-50/50 text-[10px] font-bold uppercase tracking-wide text-zinc-500 sm:text-[11px] sm:tracking-wider">
+							<th class="w-[19%] px-2 py-2.5 sm:px-3 sm:py-3">Ingredient</th>
+							<th class="w-[12%] px-2 py-2.5 sm:px-3 sm:py-3">Supplier</th>
+							<th class="w-[9%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Pkg</th>
+							<th class="w-[7%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Size</th>
+							<th class="w-[7%] px-2 py-2.5 sm:px-3 sm:py-3">Unit</th>
+							<th class="w-[8%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Ship</th>
+							<th class="w-[11%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Cost</th>
+							<th class="w-[15%] px-2 py-2.5 sm:px-3 sm:py-3">
+								<span class="block normal-case text-[9px] font-semibold leading-tight text-zinc-400">Smart Pricing</span>
+								Added / log
+							</th>
+							<th class="w-[12%] px-2 py-2.5 text-right sm:px-3 sm:py-3"><span class="sr-only">Actions</span></th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-zinc-100/50">
 						{#each filtered as row (row.id)}
 							{#if editingId === row.id}
 								<tr class="bg-emerald-50/30 transition-colors">
-									<td class="px-6 py-4">
-										<input bind:value={draft.name} class="w-full rounded-xl border-zinc-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10" />
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<input bind:value={draft.name} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-2 py-1.5 text-xs focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 sm:text-sm" />
 									</td>
-									<td class="px-6 py-4">
-										<input bind:value={draft.supplier} class="w-full rounded-xl border-zinc-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10" />
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<input bind:value={draft.supplier} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-2 py-1.5 text-xs focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 sm:text-sm" />
 									</td>
-									<td class="px-6 py-4">
-										<input type="number" step="any" bind:value={draft.packagePrice} class="w-full rounded-xl border-zinc-200 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10" />
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<input type="number" step="any" bind:value={draft.packagePrice} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-1 py-1.5 text-right text-xs tabular-nums focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 sm:text-sm" />
 									</td>
-									<td class="px-6 py-4">
-										<input type="number" step="any" bind:value={draft.packageSize} class="w-full rounded-xl border-zinc-200 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10" />
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<input type="number" step="any" bind:value={draft.packageSize} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-1 py-1.5 text-right text-xs tabular-nums focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 sm:text-sm" />
 									</td>
-									<td class="px-6 py-4">
-										<select bind:value={draft.packageUnit} class="w-full rounded-xl border-zinc-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<select bind:value={draft.packageUnit} class="w-full min-w-0 max-w-full rounded-lg border-zinc-200 bg-white px-1 py-1.5 text-[10px] focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 sm:text-xs">
 											{#each MEASURE_UNIT_OPTIONS as u}
 												<option value={u.value}>{u.label}</option>
 											{/each}
 										</select>
 									</td>
-									<td class="px-6 py-4">
-										<input type="number" step="any" bind:value={draft.shippingFee} class="w-full rounded-xl border-zinc-200 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10" />
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<input type="number" step="any" bind:value={draft.shippingFee} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-1 py-1.5 text-right text-xs tabular-nums focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 sm:text-sm" />
 									</td>
-									<td class="px-6 py-4 text-right">
-										<span class="font-bold text-emerald-600">
+									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
+										<span class="font-bold text-emerald-600 tabular-nums">
 											₱{computeUnitCost(
 												draft.packagePrice ?? 0,
 												draft.shippingFee ?? 0,
 												toBaseQuantity(draft.packageSize ?? 0, (draft.packageUnit ?? 'g') as MeasureUnit).quantity
-											).toFixed(4)}
+											).toFixed(3)}
 										</span>
 									</td>
-									<td class="px-6 py-4 text-right">
-										<div class="flex justify-end gap-2">
-											<button onclick={saveEdit} class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-500">Save</button>
-											<button onclick={cancelEdit} class="rounded-lg bg-zinc-200 px-3 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-300">Cancel</button>
+									<td class="px-2 py-2 text-[10px] text-zinc-400 sm:px-3 sm:py-2.5">—</td>
+									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
+										<div class="flex justify-end gap-1">
+											<button onclick={saveEdit} class="rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white sm:px-3 sm:text-xs">Save</button>
+											<button onclick={cancelEdit} class="rounded-md bg-zinc-200 px-2 py-1 text-[10px] font-bold text-zinc-700 sm:px-3 sm:text-xs">Cancel</button>
 										</div>
 									</td>
 								</tr>
 							{:else}
 								<tr class="group transition-colors hover:bg-zinc-50/50">
-									<td class="px-6 py-4">
-										<div class="flex items-center gap-3">
-											<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
-												<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-leaf"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C10 14.5 10.5 15 12 15"/></svg>
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<div class="flex min-w-0 items-center gap-2">
+											<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 sm:h-8 sm:w-8">
+												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C10 14.5 10.5 15 12 15"/></svg>
 											</div>
-											<span class="font-semibold text-zinc-900">{row.name}</span>
+											<span class="truncate font-semibold text-zinc-900" title={row.name}>{row.name}</span>
 										</div>
 									</td>
-									<td class="px-6 py-4 text-zinc-600">
-										<span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200/50">{row.supplier}</span>
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<span class="inline-block max-w-full truncate rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200/50 sm:text-xs" title={row.supplier}>{row.supplier}</span>
 									</td>
-									<td class="px-6 py-4 text-right font-medium tabular-nums text-zinc-900">₱{row.packagePrice.toFixed(2)}</td>
-									<td class="px-6 py-4 text-right tabular-nums text-zinc-600">{row.packageSize}</td>
-									<td class="px-6 py-4">
-										<span class="text-xs font-bold uppercase text-zinc-400">{row.packageUnit}</span>
+									<td class="px-2 py-2 text-right font-medium tabular-nums text-zinc-900 sm:px-3 sm:py-2.5">₱{row.packagePrice.toFixed(0)}</td>
+									<td class="px-2 py-2 text-right tabular-nums text-zinc-600 sm:px-3 sm:py-2.5">{row.packageSize}</td>
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<span class="text-[10px] font-bold uppercase text-zinc-400 sm:text-xs">{row.packageUnit}</span>
 									</td>
-									<td class="px-6 py-4 text-right tabular-nums text-zinc-500">₱{row.shippingFee.toFixed(2)}</td>
-									<td class="px-6 py-4 text-right">
-										<div class="flex flex-col items-end">
-											<span class="font-bold text-emerald-700">₱{row.unitCost.toFixed(4)}</span>
-											<span class="text-[10px] text-zinc-400">per {row.baseUnit}</span>
+									<td class="px-2 py-2 text-right tabular-nums text-zinc-500 sm:px-3 sm:py-2.5">{row.shippingFee === 0 ? '—' : `₱${row.shippingFee.toFixed(0)}`}</td>
+									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
+										<div class="flex flex-col items-end leading-tight">
+											<span class="font-bold tabular-nums text-emerald-700">₱{row.unitCost.toFixed(3)}</span>
+											<span class="text-[9px] text-zinc-400">/{row.baseUnit}</span>
 										</div>
 									</td>
-									<td class="px-6 py-4 text-right">
-										<div class="flex justify-end gap-1">
+									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
+										<div class="flex flex-col gap-0.5 text-[10px] leading-tight tabular-nums text-zinc-600 sm:text-xs">
+											<div><span class="text-zinc-400">+</span> {formatCatalogDateShort(row.addedAt)}</div>
+											<div><span class="text-zinc-400">●</span> {formatCatalogDateShort(lastCostLogIso(row))}</div>
+										</div>
+									</td>
+									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
+										<div class="flex justify-end gap-0.5">
 											<button
 												type="button"
-												class="rounded-lg p-2 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+												class="rounded-md p-1.5 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 sm:p-2"
 												onclick={() => startEdit(row)}
 												title="Edit ingredient"
 											>
-												<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-edit-2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
 											</button>
 											<button
 												type="button"
-												class="rounded-lg p-2 text-zinc-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+												class="rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 sm:p-2"
 												onclick={() => requestDelete(row)}
 												title="Delete ingredient"
 											>
-												<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
 											</button>
 										</div>
 									</td>

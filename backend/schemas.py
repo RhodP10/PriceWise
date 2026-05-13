@@ -256,3 +256,47 @@ class WorkspaceState(BaseModel):
         default_factory=dict, serialization_alias="costingSettings", validation_alias="costingSettings"
     )
 
+
+# --- Smart Pricing ML API (client sends precomputed COGS + list prices) ---
+
+
+class UnitCostHistoryIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    recorded_at: str = Field(validation_alias="recordedAt")
+    unit_cost: float = Field(validation_alias="unitCost")
+
+
+class CatalogItemMLIn(BaseModel):
+    """Ingredient or Other master row for ML (matches workspace JSON shape)."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    id: str
+    name: str
+    unit_cost: float = Field(validation_alias="unitCost")
+    supplier: str = ""
+    unit_cost_history: list[UnitCostHistoryIn] = Field(default_factory=list, validation_alias="unitCostHistory")
+
+
+class RecipePricingMLIn(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    id: str
+    name: str
+    cogs: float
+    current_local: float = Field(validation_alias="currentLocal")
+    suggested_local: float = Field(validation_alias="suggestedLocal")
+    current_shopee: float = Field(default=0, validation_alias="currentShopee")
+    current_lazada: float = Field(default=0, validation_alias="currentLazada")
+
+
+class SmartPricingAnalyzeIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    ingredients: list[CatalogItemMLIn] = Field(default_factory=list)
+    others: list[CatalogItemMLIn] = Field(default_factory=list)
+    recipes: list[RecipePricingMLIn] = Field(default_factory=list)
+    summary_sales: dict[str, float] = Field(default_factory=dict, validation_alias="summarySales")
+    target_margin_pct: float = Field(default=70, validation_alias="targetMarginPct")
+

@@ -36,6 +36,12 @@ export interface ChannelScrapeInfo {
 	listingBaseUnit?: 'g' | 'ml' | 'piece';
 }
 
+/** Dated snapshot of local catalog unit cost (when package price/size changes) — feeds Smart Pricing / ML. */
+export interface UnitCostHistoryEntry {
+	recordedAt: string;
+	unitCost: number;
+}
+
 /** Master ingredient purchased in bulk — unit cost from package + shipping */
 export interface IngredientMasterDTO {
 	id: string;
@@ -48,6 +54,10 @@ export interface IngredientMasterDTO {
 	baseQuantity: number;
 	baseUnit: 'g' | 'ml' | 'piece';
 	unitCost: number;
+	/** ISO — when this row was first added */
+	addedAt?: string;
+	/** Time series of local unit costs for forecasting */
+	unitCostHistory?: UnitCostHistoryEntry[];
 	/** Landed ₱ for same package from each channel (Statistics supplier comparison) */
 	supplierChannelLanded?: ChannelLandedPrices;
 	/** Optional scrape workflow metadata per marketplace */
@@ -73,6 +83,8 @@ export interface OtherItemMasterDTO {
 	baseQuantity: number;
 	baseUnit: 'g' | 'ml' | 'piece';
 	unitCost: number;
+	addedAt?: string;
+	unitCostHistory?: UnitCostHistoryEntry[];
 	supplierChannelLanded?: ChannelLandedPrices;
 	channelScrape?: Partial<Record<ChannelMarketplace, ChannelScrapeInfo>>;
 }

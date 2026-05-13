@@ -33,7 +33,8 @@
 		{ href: '/Others', label: 'Others' },
 		{ href: '/Opex', label: 'OPEX' },
 		{ href: '/Summary', label: 'Summary' },
-		{ href: '/Statistics', label: 'Statistics' }
+		{ href: '/Statistics', label: 'Statistics' },
+		{ href: '/smart-pricing', label: 'Smart Pricing' }
 	];
 
 	const showAppHeader = $derived(

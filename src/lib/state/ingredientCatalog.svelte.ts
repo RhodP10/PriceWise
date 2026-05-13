@@ -4,7 +4,8 @@ import type {
 	ChannelScrapeInfo,
 	IngredientMasterDTO,
 	IngredientMasterInput,
-	MeasureUnit
+	MeasureUnit,
+	UnitCostHistoryEntry
 } from '$lib/types/recipe';
 import type { ChannelLandedPrices } from '$lib/types/statistics';
 import { mergeChannelLanded } from '$lib/utils/marketplaceJsonImport';
@@ -51,9 +52,17 @@ function newId(): string {
 	return `mid_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const MAX_UNIT_COST_HISTORY = 36;
+
+function trimHistory(h: UnitCostHistoryEntry[]): UnitCostHistoryEntry[] {
+	if (h.length <= MAX_UNIT_COST_HISTORY) return h;
+	return h.slice(h.length - MAX_UNIT_COST_HISTORY);
+}
+
 export function addIngredientMaster(input: IngredientMasterInput): IngredientMasterDTO {
 	const base = toBaseQuantity(input.packageSize, input.packageUnit);
 	const unitCost = computeUnitCost(input.packagePrice, input.shippingFee, base.quantity);
+	const now = new Date().toISOString();
 	const row: IngredientMasterDTO = {
 		id: newId(),
 		name: input.name.trim(),
@@ -64,7 +73,9 @@ export function addIngredientMaster(input: IngredientMasterInput): IngredientMas
 		shippingFee: input.shippingFee,
 		baseQuantity: base.quantity,
 		baseUnit: base.unit,
-		unitCost
+		unitCost,
+		addedAt: now,
+		unitCostHistory: [{ recordedAt: now, unitCost }]
 	};
 	ingredientCatalog.items = [...ingredientCatalog.items, row];
 	return row;
@@ -103,10 +114,23 @@ export function updateIngredientMaster(
 			patch.shippingFee !== undefined ||
 			patch.packageUnit !== undefined
 		) {
+			const prevUnit = m.unitCost;
 			const base = toBaseQuantity(next.packageSize, next.packageUnit);
 			next.baseQuantity = base.quantity;
 			next.baseUnit = base.unit;
 			next.unitCost = computeUnitCost(next.packagePrice, next.shippingFee, next.baseQuantity);
+			if (Math.abs(next.unitCost - prevUnit) > 1e-6) {
+				const ts = new Date().toISOString();
+				const hist = trimHistory([...(m.unitCostHistory ?? []), { recordedAt: ts, unitCost: next.unitCost }]);
+				next.unitCostHistory = hist;
+				next.addedAt = m.addedAt ?? hist[0]?.recordedAt ?? ts;
+			} else {
+				next.unitCostHistory = m.unitCostHistory;
+				next.addedAt = m.addedAt;
+			}
+		} else {
+			next.unitCostHistory = m.unitCostHistory;
+			next.addedAt = m.addedAt;
 		}
 		return next;
 	});

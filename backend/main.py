@@ -41,6 +41,7 @@ from schemas import (
     RecipeOtherCostCreateIn,
     RecipeOtherCostOut,
     RecipeOut,
+    SmartPricingAnalyzeIn,
     TokenOut,
     PasswordChangeIn,
     UserOut,
@@ -48,6 +49,7 @@ from schemas import (
     WorkspaceState,
     convert_to_base,
 )
+from ml.smart_pricing import analyze_smart_pricing
 
 app = FastAPI(title="PriceWise Backend", version="2.0.0")
 Base.metadata.create_all(bind=engine)
@@ -235,6 +237,16 @@ def put_workspace(
         db.add(row)
     db.commit()
     return data
+
+
+@app.post("/ml/smart-pricing/analyze")
+def post_smart_pricing_analyze(
+    body: SmartPricingAnalyzeIn,
+    current_user: User = Depends(get_current_user),
+):
+    """ML-style pricing and cost intelligence from catalog history + recipe rows (client-built payload)."""
+    _ = current_user.id
+    return analyze_smart_pricing(body)
 
 
 @app.get("/monthly-summaries", response_model=list[MonthlySnapshotOut])
