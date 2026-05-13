@@ -422,6 +422,108 @@ def _pick_last_json_object(objs: list[Any]) -> Any | None:
     return objs[-1]
 
 
+def _lazada_xhr_looks_useful(rurl: str) -> bool:
+    """Lazada PH uses MTOP, ACS, PDP modules — URL segments vary by release."""
+    if "lazada" not in rurl:
+        return False
+    return any(
+        m in rurl
+        for m in (
+            "product",
+            "pdp",
+            "mtop",
+            "sku",
+            "price",
+            "item",
+            "detail",
+            "offer",
+            "trade",
+            "promotion",
+            "gw/",
+            "async",
+            "bac",
+            "pagecache",
+            "render",
+            "mtopjson",
+            "h5api",
+            "acs-m",
+            "acs.",
+            "component",
+        )
+    )
+
+
+def _extract_lazada_dom_price_title(page: Any) -> dict[str, Any] | None:
+    """Same ₱ / meta / JSON-LD strategy as Shopee when XHR payloads omit plain price keys."""
+    try:
+        out = page.evaluate(
+            """() => {
+                const result = { title: '', pricePeso: null };
+                const t1 = document.querySelector('h1');
+                if (t1 && t1.innerText) result.title = t1.innerText.trim();
+                if (!result.title) {
+                    const og = document.querySelector('meta[property="og:title"]');
+                    if (og) result.title = (og.getAttribute('content') || '').trim();
+                }
+                const metaPrice =
+                    document.querySelector('meta[property="product:price:amount"]') ||
+                    document.querySelector('meta[property="og:price:amount"]');
+                if (metaPrice) {
+                    const s = metaPrice.getAttribute('content');
+                    const v = parseFloat(String(s || '').replace(/,/g, ''));
+                    if (!isNaN(v) && v > 0) result.pricePeso = v;
+                }
+                if (result.pricePeso == null) {
+                    const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+                    for (const sc of scripts) {
+                        try {
+                            const j = JSON.parse(sc.textContent || '{}');
+                            const nodes = Array.isArray(j) ? j : [j];
+                            for (const node of nodes) {
+                                if (!node || typeof node !== 'object') continue;
+                                const offers = node.offers;
+                                const off = Array.isArray(offers) ? offers[0] : offers;
+                                let p = off && off.price != null ? off.price : node.price;
+                                if (typeof p === 'string') p = parseFloat(p.replace(/,/g, ''));
+                                if (typeof p === 'number' && !isNaN(p) && p > 0) {
+                                    result.pricePeso = p;
+                                    break;
+                                }
+                            }
+                            if (result.pricePeso != null) break;
+                        } catch (e) {}
+                    }
+                }
+                if (result.pricePeso == null) {
+                    const body = document.body ? document.body.innerText : '';
+                    const head = body.slice(0, 8000);
+                    const re = /(?:₱|\\u20b1|PHP|P)\\s*([\\d,]+(?:\\.\\d{1,2})?)/gi;
+                    let m;
+                    const found = [];
+                    while ((m = re.exec(head)) !== null) {
+                        const v = parseFloat(m[1].replace(/,/g, ''));
+                        if (!isNaN(v) && v >= 1 && v < 100000000) found.push(v);
+                    }
+                    if (found.length === 1) result.pricePeso = found[0];
+                    else if (found.length > 1) {
+                        const uniq = [...new Set(found)].sort((a, b) => a - b);
+                        result.pricePeso = uniq[Math.floor(uniq.length / 2)];
+                    }
+                }
+                return result;
+            }"""
+        )
+        if not isinstance(out, dict):
+            return None
+        price = out.get("pricePeso")
+        title = out.get("title") if isinstance(out.get("title"), str) else ""
+        if isinstance(price, (int, float)) and price > 0:
+            return {"title": title or "", "price_peso": float(price)}
+        return None
+    except Exception:
+        return None
+
+
 def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
     try:
         from playwright.sync_api import sync_playwright
@@ -434,7 +536,10 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
     captured: list[Any] = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         try:
             context = browser.new_context(
                 user_agent=(
@@ -452,20 +557,7 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
                     if response.status != 200:
                         return
                     rurl = response.url.lower()
-                    if "lazada" not in rurl:
-                        return
-                    if not any(
-                        k in rurl
-                        for k in (
-                            "product",
-                            "pdp",
-                            "mtop.",
-                            "sku",
-                            "price",
-                            "item",
-                            "detail",
-                        )
-                    ):
+                    if not _lazada_xhr_looks_useful(rurl):
                         return
                     ct = (response.headers.get("content-type") or "").lower()
                     if "json" not in ct:
@@ -481,24 +573,51 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
                 page.wait_for_timeout(EXTRA_WAIT_MS)
+                page.wait_for_timeout(2000)
             except Exception as exc:
                 return False, None, f"Navigation failed: {exc!s}"
 
-            if not captured:
-                try:
-                    mod = page.evaluate(
-                        """() => {
-                            try {
-                                return typeof window.__moduleData__ !== 'undefined'
+            try:
+                bootstrap = page.evaluate(
+                    """() => {
+                        try {
+                            return {
+                                __moduleData__:
+                                    typeof window.__moduleData__ !== 'undefined'
                                     ? window.__moduleData__
-                                    : null;
-                            } catch (e) { return null; }
-                        }"""
+                                    : null,
+                                pageData:
+                                    typeof window.pageData !== 'undefined' ? window.pageData : null,
+                                __INIT_DATA__:
+                                    typeof window.__INIT_DATA__ !== 'undefined'
+                                    ? window.__INIT_DATA__
+                                    : null,
+                            };
+                        } catch (e) {
+                            return null;
+                        }
+                    }"""
+                )
+                if bootstrap and isinstance(bootstrap, dict):
+                    has_any = any(
+                        bootstrap.get(k) is not None
+                        for k in ("__moduleData__", "pageData", "__INIT_DATA__")
                     )
-                    if mod:
-                        captured.append(mod if isinstance(mod, dict) else {"module": mod})
-                except Exception:
-                    pass
+                    if has_any:
+                        captured.append({"_lazadaPageBootstrap": bootstrap})
+            except Exception:
+                pass
+
+            if not captured:
+                dom = _extract_lazada_dom_price_title(page)
+                if dom and dom.get("price_peso"):
+                    captured.append(
+                        {
+                            "price": dom["price_peso"],
+                            "title": dom.get("title") or "",
+                            "_pricewise_source": "dom_fallback",
+                        }
+                    )
         finally:
             browser.close()
 
@@ -509,6 +628,9 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
             None,
             "Could not capture Lazada product JSON. Try another listing URL or Advanced → paste JSON.",
         )
+
+    if isinstance(payload, dict):
+        payload["_pricewisePageUrl"] = url
 
     try:
         return True, json.dumps(payload), None

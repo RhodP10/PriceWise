@@ -260,8 +260,15 @@
 					{/if}
 				{:else}
 					<ul class="mt-2 list-inside list-disc space-y-1 text-[13px] leading-snug opacity-95">
-						<li>Lazada loads JSON over XHR; the worker captures product-like responses or page bootstrap data.</li>
-						<li>Parsing is best-effort — if numbers look wrong, use Advanced → paste JSON from DevTools.</li>
+						<li>
+							<strong>Save &amp; sync</strong> reads <code class="text-xs">window.__moduleData__</code>,
+							<code class="text-xs">pageData</code>, and <code class="text-xs">__INIT_DATA__</code> after the PDP loads — the same data you’d hunt for in DevTools, bundled as one JSON.
+						</li>
+						<li>
+							The importer resolves <strong>skuInfos</strong> + <strong>selected SKU</strong> when present (sale price / nested
+							<code class="text-xs">salePrice.value</code>), then specifications + title for package size hints.
+						</li>
+						<li>If sync fails, use Advanced — paste a large PDP response, not a tiny analytics request.</li>
 					</ul>
 				{/if}
 			</div>
@@ -379,6 +386,22 @@
 							calls, or region-specific paths).
 						</li>
 						<li>Right-click that row → <strong>Copy</strong> → <strong>Copy response</strong>, then paste below.</li>
+					</ol>
+				{:else if marketplace === 'lazada'}
+					<ol class="mt-3 list-decimal space-y-1.5 pl-5 text-[13px] leading-snug text-zinc-700">
+						<li>
+							<strong>Desktop</strong> Chrome/Edge → <kbd class="rounded bg-zinc-200 px-1">F12</kbd> → <strong>Network</strong> → filter
+							<strong>Fetch / XHR</strong>.
+						</li>
+						<li>
+							In the filter box try <code class="text-xs">mtop</code>, <code class="text-xs">product</code>,
+							<code class="text-xs">pdp</code>, <code class="text-xs">detail</code>, or <code class="text-xs">sku</code> — Lazada does not use one fixed name.
+						</li>
+						<li><strong>Reload</strong> the product page. Open responses whose Preview shows nested JSON with numbers.</li>
+						<li>
+							Copy <strong>Copy response</strong> on any medium-sized JSON (often thousands of lines). PriceWise scans the whole tree for
+							price fields — you do not need to find a specific endpoint name.
+						</li>
 					</ol>
 				{:else}
 					<p class="mt-2 text-[13px] text-zinc-600">

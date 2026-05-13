@@ -327,9 +327,423 @@ export function parseShopeeItemGetJson(
 	};
 }
 
+/** Lazada APIs vary (MTOP, PDP modules); normalize integers that might be centavos or minor units. */
+function lazadaNormalizeRawPrice(raw: number): number[] {
+	if (!Number.isFinite(raw) || raw <= 0) return [];
+	const candidates = new Set<number>();
+	const push = (x: number) => {
+		const r = Math.round(x * 100) / 100;
+		if (r >= 10 && r <= 5_000_000) candidates.add(r);
+	};
+	push(raw);
+	push(raw / 100);
+	push(raw / 10000);
+	push(raw / 100000);
+	push(raw / 1000000);
+	const arr = [...candidates].sort((a, b) => a - b);
+	/** Prefer typical storefront ₱ amounts over tiny fractions from bad divides */
+	const preferred = arr.filter((x) => x >= 39 && x <= 999_999);
+	return preferred.length ? preferred : arr;
+}
+
+/** Lower score = prefer for list price. “discount” alone often holds amounts saved — not list ₱. */
+function lazadaPriceKeyScore(key: string): number {
+	const k = key.toLowerCase();
+	if (
+		/\b(discount|cashback|voucher|coin|point|installment|emi|percent|ratio|saved)\b/i.test(k) ||
+		/^pct|rate$/i.test(k)
+	) {
+		return 98;
+	}
+	/* `/sale/` matches inside `sales` — cumulative sold counts were tier-0 “prices” (e.g. ₱100,000). */
+	if (/\b(sales|wholesale|presales)\b/i.test(k)) return 98;
+	if (/sales/i.test(k) && !/saleprice|sale_price/i.test(k)) return 98;
+	if (/\b(soldquantity|soldcount|reviewcount|ratingcount)\b/i.test(k)) return 98;
+	if (
+		/\b(saleprice|listprice|promotionprice|offerprice|dealprice|finalprice|currentprice|specialprice)\b/i.test(k)
+	) {
+		return 0;
+	}
+	if (/sale|promotion|offer|deal|final|current|special|listprice|saleprice/i.test(k)) return 0;
+	if (/^pay$/i.test(k)) return 98;
+	if (/payamount|paidamount|payable|orderamount/i.test(k)) return 1;
+	if (/price|amount|cost/i.test(k) && !/original|market|strike|before|cross|list|rrp|high/i.test(k)) return 1;
+	if (/original|market|strike|before|list|rrp/i.test(k)) return 3;
+	return 2;
+}
+
+/** PDP/search URLs often carry `price=` or `priceCompare` minor-unit integers (e.g. displayPrice:41661 → ₱416.61). */
+function lazadaExtractPriceFromListingUrl(rawUrl: unknown): number {
+	if (typeof rawUrl !== 'string' || !rawUrl.trim()) return 0;
+	try {
+		const u = new URL(rawUrl.trim());
+		const direct = u.searchParams.get('price');
+		if (direct) {
+			const n = parseFloat(direct.replace(/,/g, ''));
+			if (Number.isFinite(n) && n >= 1 && n <= 500_000) return Math.round(n * 100) / 100;
+		}
+		const pc = u.searchParams.get('priceCompare');
+		if (pc) {
+			const dec = decodeURIComponent(pc);
+			for (const name of ['displayPrice', 'originPrice'] as const) {
+				const re = new RegExp(`(?:^|[;])${name}:(\\d+)`, 'i');
+				const m = re.exec(dec);
+				if (!m) continue;
+				const v = parseInt(m[1], 10);
+				if (!Number.isFinite(v) || v <= 0) continue;
+				const major = v >= 1000 ? v / 100 : v;
+				const rounded = Math.round(major * 100) / 100;
+				if (rounded >= 1 && rounded <= 500_000) return rounded;
+			}
+		}
+	} catch {
+		return 0;
+	}
+	return 0;
+}
+
+/** PDP path often includes `-s{skuId}.html` (explicit variant from the shared link). */
+function lazadaSkuIdFromListingUrl(rawUrl: unknown): string | number | null {
+	if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+	try {
+		const u = new URL(rawUrl.trim());
+		const path = u.pathname;
+		const m = /-s(\d+)(?:\.html)?$/i.exec(path);
+		if (m) return m[1];
+		for (const key of ['sku_id', 'skuId', 'skuid'] as const) {
+			const q = u.searchParams.get(key);
+			if (q && /^\d+$/.test(q)) return q;
+		}
+	} catch {
+		return null;
+	}
+	return null;
+}
+
+/** Depth-first: collect normalized ₱ candidates from nested Lazada / MTOP payloads. */
+function walkCollectLazadaPrices(obj: unknown, depth: number, scored: { p: number; s: number }[]): void {
+	if (depth > 28) return;
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const r = obj as Record<string, unknown>;
+		for (const [key, val] of Object.entries(r)) {
+			if (/shipping|freight|delivery|postage|postfee|shipfee/i.test(key)) continue;
+			if (/\b(sku|item|shop)?id$/i.test(key) && typeof val === 'number' && val < 1_000_000_000) {
+				continue;
+			}
+			const ks = lazadaPriceKeyScore(key);
+			if (ks >= 98) continue;
+			if (typeof val === 'number' && val > 0) {
+				for (const php of lazadaNormalizeRawPrice(val)) {
+					scored.push({ p: php, s: ks });
+				}
+			} else if (typeof val === 'string' && /^[\d,.]+$/.test(val.trim())) {
+				const n = parseFloat(val.replace(/,/g, ''));
+				if (n > 0) {
+					for (const php of lazadaNormalizeRawPrice(n)) {
+						scored.push({ p: php, s: ks });
+					}
+				}
+			}
+		}
+		for (const v of Object.values(r)) walkCollectLazadaPrices(v, depth + 1, scored);
+	} else if (Array.isArray(obj)) {
+		for (const el of obj) walkCollectLazadaPrices(el, depth + 1, scored);
+	}
+}
+
+function pickBestLazadaListPrice(scored: { p: number; s: number }[]): number {
+	if (scored.length === 0) return 0;
+	scored.sort((a, b) => (a.s !== b.s ? a.s - b.s : a.p - b.p));
+	const tier = scored[0].s;
+	let tierPool = scored.filter((x) => x.s === tier);
+	let prices = [...new Set(tierPool.map((x) => x.p))].sort((a, b) => a - b);
+	if (prices.length >= 2) {
+		const lo = prices[0];
+		const hi = prices[prices.length - 1];
+		/** Drop tiny junk numbers when the same JSON also contains realistic list ₱ (e.g. 76 vs 528). */
+		if (hi >= 199 && hi <= 900_000 && hi / lo >= 2.5) {
+			prices = prices.filter((p) => p >= hi / 5);
+		}
+	}
+	if (prices.length === 0) return 0;
+	return prices.reduce((m, x) => Math.min(m, x), prices[0]);
+}
+
+function walkFindLazadaTitle(obj: unknown, depth: number): string {
+	if (depth > 22) return '';
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const r = obj as Record<string, unknown>;
+		for (const k of ['title', 'subject', 'productTitle', 'itemTitle', 'name', 'productName'] as const) {
+			const v = r[k];
+			if (typeof v === 'string' && v.trim().length > 3) return v.trim();
+		}
+		for (const v of Object.values(r)) {
+			const t = walkFindLazadaTitle(v, depth + 1);
+			if (t) return t;
+		}
+	} else if (Array.isArray(obj)) {
+		for (const el of obj) {
+			const t = walkFindLazadaTitle(el, depth + 1);
+			if (t) return t;
+		}
+	}
+	return '';
+}
+
+function lazadaExtractMoneyPhp(v: unknown): number {
+	if (typeof v === 'number' && v > 0 && v < 500_000) return Math.round(v * 100) / 100;
+	if (v && typeof v === 'object') {
+		const o = v as Record<string, unknown>;
+		const inner =
+			o.amount ??
+			o.fee ??
+			o.price ??
+			o.value ??
+			o.singleValue ??
+			o.payAmount ??
+			o.displayAmount;
+		if (typeof inner === 'number' && inner > 0) {
+			const opts = lazadaNormalizeRawPrice(inner);
+			const pick = opts.filter((x) => x >= 5 && x < 50_000);
+			return pick.length ? Math.min(...pick) : opts[0] ?? 0;
+		}
+	}
+	return 0;
+}
+
+/** Playwright bundles __moduleData__ / pageData / __INIT_DATA__ — parse each fragment. */
+function lazadaEffectiveRoots(root: Record<string, unknown>): Record<string, unknown>[] {
+	const bs = root._lazadaPageBootstrap;
+	if (bs && typeof bs === 'object') {
+		const b = bs as Record<string, unknown>;
+		const parts: Record<string, unknown>[] = [];
+		for (const key of ['__moduleData__', 'pageData', '__INIT_DATA__'] as const) {
+			const v = b[key];
+			if (v && typeof v === 'object' && !Array.isArray(v)) parts.push(v as Record<string, unknown>);
+		}
+		if (parts.length) return [...parts, root];
+	}
+	return [root];
+}
+
+function lazadaWalkFindSelectedSkuId(obj: unknown, depth = 0): string | number | null {
+	if (depth > 22) return null;
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const r = obj as Record<string, unknown>;
+		for (const k of [
+			'selectedSkuId',
+			'curSkuId',
+			'currentSkuId',
+			'skuSelectedId',
+			'focusSkuId',
+			'mainSkuId'
+		] as const) {
+			const v = r[k];
+			if (typeof v === 'number' && v > 0) return v;
+			if (typeof v === 'string' && /^\d+$/.test(v)) return v;
+		}
+		const sel = r.selectedSku;
+		if (sel && typeof sel === 'object') {
+			const so = sel as Record<string, unknown>;
+			const sid = so.skuId ?? so.itemId ?? so.id;
+			if (typeof sid === 'number' && sid > 0) return sid;
+			if (typeof sid === 'string' && /^\d+$/.test(sid)) return sid;
+		}
+		for (const v of Object.values(r)) {
+			const hit = lazadaWalkFindSelectedSkuId(v, depth + 1);
+			if (hit !== null) return hit;
+		}
+	} else if (Array.isArray(obj)) {
+		for (const el of obj) {
+			const hit = lazadaWalkFindSelectedSkuId(el, depth + 1);
+			if (hit !== null) return hit;
+		}
+	}
+	return null;
+}
+
+function lazadaWalkFindSkuInfos(obj: unknown, depth = 0): unknown[] | null {
+	if (depth > 22) return null;
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const r = obj as Record<string, unknown>;
+		const si = r.skuInfos ?? r.skuList;
+		if (Array.isArray(si) && si.length > 0) return si;
+		for (const v of Object.values(r)) {
+			const hit = lazadaWalkFindSkuInfos(v, depth + 1);
+			if (hit) return hit;
+		}
+	} else if (Array.isArray(obj)) {
+		for (const el of obj) {
+			const hit = lazadaWalkFindSkuInfos(el, depth + 1);
+			if (hit) return hit;
+		}
+	}
+	return null;
+}
+
+function lazadaSkuRowMatchesId(row: unknown, id: string | number | null): boolean {
+	if (id === null || row === null || typeof row !== 'object') return false;
+	const r = row as Record<string, unknown>;
+	const candidates = [
+		r.skuId,
+		r.itemId,
+		r.sku_id,
+		r.item_id,
+		r.id,
+		r.SKUId
+	];
+	const idStr = String(id);
+	for (const c of candidates) {
+		if (c !== undefined && c !== null && String(c) === idStr) return true;
+	}
+	return false;
+}
+
+function lazadaPickSkuRow(infos: unknown[], selectedId: string | number | null): unknown | null {
+	if (!infos.length) return null;
+	if (selectedId !== null) {
+		const hit = infos.find((row) => lazadaSkuRowMatchesId(row, selectedId));
+		if (hit) return hit;
+	}
+	return infos[0];
+}
+
+/** Lazada nests sale prices: price.salePrice.value, price.showPrice */
+function lazadaExtractNestedPricePhp(priceVal: unknown): number {
+	if (typeof priceVal === 'number') {
+		const opts = lazadaNormalizeRawPrice(priceVal);
+		return opts.length ? opts[0] : priceVal;
+	}
+	if (!priceVal || typeof priceVal !== 'object') return 0;
+	const p = priceVal as Record<string, unknown>;
+	const sale = p.salePrice;
+	if (sale && typeof sale === 'object') {
+		const v = (sale as Record<string, unknown>).value;
+		if (typeof v === 'number') {
+			const opts = lazadaNormalizeRawPrice(v);
+			return opts.length ? opts[0] : v;
+		}
+	}
+	const show = p.showPrice;
+	if (typeof show === 'string') {
+		const m = show.replace(/,/g, '').match(/(\d+(?:\.\d{1,2})?)/);
+		if (m) return parseFloat(m[1]);
+	}
+	for (const k of ['promotionPrice', 'finalPrice', 'price'] as const) {
+		const v = p[k];
+		if (typeof v === 'number') {
+			const opts = lazadaNormalizeRawPrice(v);
+			if (opts.length) return opts[0];
+		}
+		if (v && typeof v === 'object') {
+			const inner = (v as Record<string, unknown>).value;
+			if (typeof inner === 'number') {
+				const opts = lazadaNormalizeRawPrice(inner);
+				return opts.length ? opts[0] : inner;
+			}
+		}
+	}
+	return 0;
+}
+
+function lazadaExtractSkuRowPricePhp(sku: unknown): number {
+	if (!sku || typeof sku !== 'object') return 0;
+	const o = sku as Record<string, unknown>;
+	let v = lazadaExtractNestedPricePhp(o.price);
+	if (v > 0) return v;
+	v = lazadaExtractNestedPricePhp(o.salePrice);
+	if (v > 0) return v;
+	if (typeof o.price === 'number') {
+		const opts = lazadaNormalizeRawPrice(o.price);
+		return opts.length ? opts[0] : o.price;
+	}
+	return 0;
+}
+
+function lazadaCollectSpecificationBlobs(obj: unknown, depth = 0, out: string[] = []): string[] {
+	if (depth > 20) return out;
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const r = obj as Record<string, unknown>;
+		const specs = r.specifications ?? r.attributes ?? r.props;
+		if (Array.isArray(specs)) {
+			for (const s of specs) {
+				if (s && typeof s === 'object') {
+					const rec = s as Record<string, unknown>;
+					const name = rec.name ?? rec.attrName;
+					const val = rec.value ?? rec.attrVal ?? rec.text;
+					if (typeof val === 'string')
+						out.push(typeof name === 'string' ? `${name} ${val}` : val);
+				}
+			}
+		}
+		for (const v of Object.values(r)) lazadaCollectSpecificationBlobs(v, depth + 1, out);
+	} else if (Array.isArray(obj)) {
+		for (const el of obj) lazadaCollectSpecificationBlobs(el, depth + 1, out);
+	}
+	return out;
+}
+
+function guessLazadaDimsFromHybrid(
+	rootFragments: Record<string, unknown>[],
+	title: string | undefined,
+	local: CatalogRowForImport
+): Pick<
+	MarketplaceImportPatch,
+	'listingPackageSize' | 'listingPackageUnit' | 'listingBaseQuantity' | 'listingBaseUnit'
+> {
+	const blobs: string[] = [];
+	if (title) blobs.push(title);
+	for (const frag of rootFragments) lazadaCollectSpecificationBlobs(frag, 0, blobs);
+	let parsed: ReturnType<typeof extractGramsMlPiece> | null = null;
+	for (const b of blobs) {
+		parsed = extractGramsMlPiece(b);
+		if (parsed) break;
+	}
+	const listingPackageSize = parsed ? parsed.qty : local.packageSize;
+	const listingPackageUnit = parsed
+		? parsed.unit === 'g'
+			? 'g'
+			: parsed.unit === 'ml'
+				? 'ml'
+				: 'piece'
+		: local.packageUnit;
+	const base = toBaseQuantity(listingPackageSize, listingPackageUnit);
+	return {
+		listingPackageSize,
+		listingPackageUnit,
+		listingBaseQuantity: base.quantity,
+		listingBaseUnit: base.unit
+	};
+}
+
+function walkFindLazadaShipping(obj: unknown, depth: number): number {
+	if (depth > 22) return 0;
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const r = obj as Record<string, unknown>;
+		for (const key of Object.keys(r)) {
+			if (
+				/shipping|freight|postage|deliveryfee|shipfee|deliverycost|logisticsfee|standarddelivery/i.test(key)
+			) {
+				const got = lazadaExtractMoneyPhp(r[key]);
+				if (got > 0 && got < 50_000) return got;
+			}
+		}
+		for (const v of Object.values(r)) {
+			const s = walkFindLazadaShipping(v, depth + 1);
+			if (s > 0) return s;
+		}
+	} else if (Array.isArray(obj)) {
+		for (const el of obj) {
+			const s = walkFindLazadaShipping(el, depth + 1);
+			if (s > 0) return s;
+		}
+	}
+	return 0;
+}
+
 /**
- * Best-effort Lazada product JSON (pdpModule, product, or similar) from Network tab.
- * Prices are often plain PHP already; we also look for fields named *Price*.
+ * Lazada: prefer `_lazadaPageBootstrap` from Playwright, selected SKU row in `skuInfos`,
+ * nested `salePrice.value`, specifications + title for package hints.
  */
 export function parseLazadaProductJson(
 	raw: string,
@@ -339,13 +753,30 @@ export function parseLazadaProductJson(
 	try {
 		root = JSON.parse(raw) as unknown;
 	} catch {
-		return { ok: false, error: 'Invalid JSON. Copy a product XHR response that includes price fields.' };
+		return {
+			ok: false,
+			error: 'Invalid JSON. In Network → Fetch/XHR, copy the Response body of a product page request (try filtering “product”, “pdp”, “mtop”, or “detail”).'
+		};
 	}
 	if (!root || typeof root !== 'object') return { ok: false, error: 'Unexpected JSON root.' };
 
 	const r = root as Record<string, unknown>;
-	let title: string | undefined;
-	let pricePhp = 0;
+	const roots = lazadaEffectiveRoots(r);
+
+	let selectedSkuId: string | number | null = lazadaSkuIdFromListingUrl(r._pricewisePageUrl);
+	let skuInfos: unknown[] | null = null;
+	for (const frag of roots) {
+		if (selectedSkuId === null)
+			selectedSkuId = lazadaWalkFindSelectedSkuId(frag) ?? selectedSkuId;
+		const found = lazadaWalkFindSkuInfos(frag);
+		if (found && found.length > 0) skuInfos = found;
+	}
+
+	let skuPricePhp = 0;
+	if (skuInfos && skuInfos.length > 0) {
+		const row = lazadaPickSkuRow(skuInfos, selectedSkuId);
+		if (row) skuPricePhp = lazadaExtractSkuRowPricePhp(row);
+	}
 
 	const globalRaw = r.global;
 	const globalObj =
@@ -363,39 +794,53 @@ export function parseLazadaProductJson(
 			? (payloadRoot as Record<string, unknown>)
 			: r;
 
-	const skuInfos = flat.skuInfos;
+	const flatSkuInfos = flat.skuInfos;
 	const skuList = flat.skuList;
 	const priceCandidates: unknown[] = [
 		flat.price,
 		flat.originalPrice,
-		Array.isArray(skuInfos) ? skuInfos[0] : undefined,
+		Array.isArray(flatSkuInfos) ? flatSkuInfos[0] : undefined,
 		Array.isArray(skuList) ? skuList[0] : undefined
 	];
+	let firstPass = 0;
 	for (const c of priceCandidates) {
 		if (typeof c === 'number' && c > 0) {
-			pricePhp = c;
+			const opts = lazadaNormalizeRawPrice(c);
+			firstPass = opts.length ? opts[0] : c;
 			break;
 		}
 		if (c && typeof c === 'object') {
 			const o = c as Record<string, unknown>;
-			const p = o.price ?? o.originalPrice ?? o.salePrice ?? o.finalPrice;
-			if (typeof p === 'number' && p > 0) {
-				pricePhp = p;
+			const nested =
+				o.price ?? o.originalPrice ?? o.salePrice ?? o.finalPrice ?? o.promotionPrice;
+			if (typeof nested === 'number' && nested > 0) {
+				const opts = lazadaNormalizeRawPrice(nested);
+				firstPass = opts.length ? opts[0] : nested;
+				break;
+			}
+			const fromNested = lazadaExtractNestedPricePhp(o.price);
+			if (fromNested > 0) {
+				firstPass = fromNested;
 				break;
 			}
 		}
 	}
 
-	if (pricePhp > 100_000_000) pricePhp /= 100_000;
-	else if (pricePhp > 10_000_000) pricePhp /= 100;
+	const scored: { p: number; s: number }[] = [];
+	for (const frag of roots) walkCollectLazadaPrices(frag, 0, scored);
+	const urlHintPhp = lazadaExtractPriceFromListingUrl(r._pricewisePageUrl);
+	if (urlHintPhp > 0) scored.push({ p: urlHintPhp, s: -4 });
+	if (skuPricePhp > 0) scored.push({ p: Math.round(skuPricePhp * 100) / 100, s: -2 });
+	if (firstPass > 0) scored.push({ p: Math.round(firstPass * 100) / 100, s: 1 });
 
+	let pricePhp = pickBestLazadaListPrice(scored);
 	pricePhp = Math.round(pricePhp * 100) / 100;
 
-	if (pricePhp <= 0 || pricePhp > 10_000_000) {
+	if (pricePhp <= 0 || pricePhp > 5_000_000) {
 		return {
 			ok: false,
 			error:
-				'Could not find a sensible price. Paste the JSON from the main product / sku API response (Network tab).'
+				'Could not find a price in this JSON. Use Save & sync (Playwright reads window.__moduleData__ / pageData) or paste a full PDP response — not a tiny tracking XHR.'
 		};
 	}
 
@@ -403,21 +848,18 @@ export function parseLazadaProductJson(
 		(typeof flat.title === 'string' && flat.title) ||
 		(typeof flat.subject === 'string' && flat.subject) ||
 		(typeof flat.productTitle === 'string' && flat.productTitle) ||
-		'';
-	title = titleBlob || undefined;
+		walkFindLazadaTitle(r, 0);
+	const title = titleBlob || undefined;
 
-	let parsed = title ? extractGramsMlPiece(title) : null;
-	const listingPackageSize = parsed ? parsed.qty : local.packageSize;
-	const listingPackageUnit = parsed
-		? parsed.unit === 'g'
-			? 'g'
-			: parsed.unit === 'ml'
-				? 'ml'
-				: 'piece'
-		: local.packageUnit;
-	const base = toBaseQuantity(listingPackageSize, listingPackageUnit);
+	const dims = guessLazadaDimsFromHybrid(roots, title, local);
 
-	const ship = typeof flat.shippingFee === 'number' ? flat.shippingFee : 0;
+	let ship = typeof flat.shippingFee === 'number' ? flat.shippingFee : 0;
+	if (ship <= 0) {
+		for (const frag of roots) {
+			ship = walkFindLazadaShipping(frag, 0);
+			if (ship > 0) break;
+		}
+	}
 	const landed = Math.round((pricePhp + ship) * 100) / 100;
 
 	return {
@@ -425,11 +867,8 @@ export function parseLazadaProductJson(
 		productName: title,
 		patch: {
 			supplierChannelLanded: { lazada: landed },
-			listingPackageSize,
-			listingPackageUnit,
-			listingShippingFee: ship,
-			listingBaseQuantity: base.quantity,
-			listingBaseUnit: base.unit
+			...dims,
+			listingShippingFee: ship
 		}
 	};
 }

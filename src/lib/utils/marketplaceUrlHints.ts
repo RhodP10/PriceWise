@@ -37,5 +37,5 @@ export function shopeeItemGetApiUrl(ids: ShopeeIds): string {
 export function marketplaceGuideTitle(channel: ChannelMarketplace): string {
 	return channel === 'shopee'
 		? 'Shopee: fetch PDP JSON (names vary by region)'
-		: 'Reliable path: Lazada XHR / Playwright';
+		: 'Lazada: page globals + SKU (more reliable than random XHR)';
 }
