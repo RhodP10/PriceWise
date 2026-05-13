@@ -12,7 +12,7 @@
 	} from '$lib/state/summarySales.svelte';
 	import { perOrderTotalCost } from '$lib/utils/recipeCosting';
 	import { upsertMonthlySnapshot } from '$lib/state/monthlySummaryStore.svelte';
-	import { pushWorkspaceNow } from '$lib/state/userDataPersistence';
+	import { pushWorkspaceNow } from '$lib/state/userDataPersistence.svelte';
 	import { upsertMonthlySummaryOnServer } from '$lib/api/monthlySummariesClient';
 	import { computeLiveMonthKpis } from '$lib/utils/dashboardFinance';
 	import { bestSupplierLabel } from '$lib/utils/supplierAnalytics';

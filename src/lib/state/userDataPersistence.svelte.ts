@@ -11,7 +11,8 @@ import {
 } from '$lib/state/monthlySummaryStore.svelte';
 import { resetSummarySales, summarySales } from '$lib/state/summarySales.svelte';
 
-let workspaceSaveEnabled = false;
+/** Must be reactive: +layout `$effect` gates on this before reading recipe/catalog state; otherwise saves never subscribe after bootstrap. */
+let workspaceSaveEnabled = $state(false);
 let workspacePersistTimer: ReturnType<typeof setTimeout> | null = null;
 let workspaceLoadGen = 0;
 
@@ -125,6 +126,7 @@ export async function bootstrapUserWorkspace(token: string): Promise<void> {
 	}
 	if (gen !== workspaceLoadGen) return;
 	setWorkspaceSaveEnabled(true);
+	scheduleWorkspacePersist(token);
 }
 
 export function clearInMemoryUserData(): void {

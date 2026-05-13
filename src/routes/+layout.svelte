@@ -11,7 +11,7 @@
 		isWorkspaceSaveEnabled,
 		pushWorkspaceNow,
 		scheduleWorkspacePersist
-	} from '$lib/state/userDataPersistence';
+	} from '$lib/state/userDataPersistence.svelte';
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
 	import { opexStore } from '$lib/state/opexStore.svelte';
