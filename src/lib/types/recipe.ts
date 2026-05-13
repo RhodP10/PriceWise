@@ -3,7 +3,7 @@ import type { ChannelLandedPrices } from '$lib/types/statistics';
 /** Lazada / Shopee marketplace rows in catalogs */
 export type ChannelMarketplace = 'lazada' | 'shopee';
 
-/** Saved scrape hint + UI status (no server scrape in this app — URL helps future/manual workflows) */
+/** Saved scrape hint + UI status (Help Scrape modal documents API/XHR-first workflows; no automated fetch in app yet) */
 export type ScrapeStatus = 'idle' | 'pending' | 'scraping' | 'complete' | 'error';
 
 /** Café-oriented units; liquids normalize to ml, mass to g, count to piece */

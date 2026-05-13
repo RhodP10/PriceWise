@@ -6,6 +6,8 @@ import type {
 	IngredientMasterInput,
 	MeasureUnit
 } from '$lib/types/recipe';
+import type { ChannelLandedPrices } from '$lib/types/statistics';
+import { mergeChannelLanded } from '$lib/utils/marketplaceJsonImport';
 import { computeUnitCost, toBaseQuantity } from '$lib/utils/baseUnitCost';
 
 export const ingredientCatalog = $state({
@@ -77,17 +79,21 @@ export function updateIngredientMaster(
 		>
 	> & {
 		channelScrape?: Partial<Record<ChannelMarketplace, Partial<ChannelScrapeInfo>>>;
+		supplierChannelLanded?: Partial<ChannelLandedPrices>;
 	}
 ): void {
 	ingredientCatalog.items = ingredientCatalog.items.map((m) => {
 		if (m.id !== id) return m;
-		const { channelScrape: chPatch, ...fieldPatch } = patch;
+		const { channelScrape: chPatch, supplierChannelLanded: landedPatch, ...fieldPatch } = patch;
 		const next: IngredientMasterDTO = {
 			...m,
 			...fieldPatch,
 			name: patch.name !== undefined ? patch.name.trim() : m.name,
 			supplier: patch.supplier !== undefined ? patch.supplier.trim() : m.supplier
 		};
+		if (landedPatch) {
+			next.supplierChannelLanded = mergeChannelLanded(m.supplierChannelLanded, landedPatch);
+		}
 		if (chPatch) {
 			next.channelScrape = mergeChannelScrape(m.channelScrape, chPatch);
 		}

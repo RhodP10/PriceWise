@@ -1,4 +1,6 @@
+import asyncio
 from datetime import datetime
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +8,9 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from pydantic import BaseModel
+
+from marketplace_browser_scrape import scrape_lazada_sync, scrape_shopee_sync
 from auth import create_access_token, hash_password, verify_password
 from database import Base, engine
 from deps import get_current_user, get_db
@@ -47,18 +52,12 @@ from schemas import (
 app = FastAPI(title="PriceWise Backend", version="2.0.0")
 Base.metadata.create_all(bind=engine)
 
+# Bearer tokens are sent via Authorization header (not cookies), so allow_origins=["*"]
+# avoids brittle CORS when Origin is localhost vs 127.0.0.1 vs LAN IP during dev.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ],
-    # Any Vite / dev port on this machine (5175, 4173 preview, etc.)
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -75,6 +74,37 @@ def _other_out(obj: OtherCost) -> OtherCostOut:
 @app.get("/")
 def root():
     return {"message": "PriceWise recipe costing API is running"}
+
+
+class MarketplaceScrapeIn(BaseModel):
+    url: str
+    marketplace: Literal["shopee", "lazada"]
+
+
+class MarketplaceScrapeOut(BaseModel):
+    ok: bool
+    body_json: str | None = None
+    error: str | None = None
+
+
+@app.post("/marketplace/scrape", response_model=MarketplaceScrapeOut)
+async def marketplace_scrape(body: MarketplaceScrapeIn):
+    """Fetch listing JSON via Playwright (Chromium). Requires `playwright install chromium`."""
+    try:
+        if body.marketplace == "shopee":
+            ok, text, err = await asyncio.to_thread(scrape_shopee_sync, body.url)
+        else:
+            ok, text, err = await asyncio.to_thread(scrape_lazada_sync, body.url)
+        if ok and text:
+            return MarketplaceScrapeOut(ok=True, body_json=text, error=None)
+        return MarketplaceScrapeOut(ok=False, body_json=None, error=err or "Scrape failed")
+    except Exception as exc:
+        # Always JSON — never plain-text/HTML 500 (frontend expects JSON)
+        return MarketplaceScrapeOut(
+            ok=False,
+            body_json=None,
+            error=f"{type(exc).__name__}: {exc}",
+        )
 
 
 @app.post("/auth/register", response_model=UserOut)

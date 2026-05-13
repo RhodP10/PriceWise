@@ -5,22 +5,21 @@ export type DisplayScrapeState = 'complete' | 'scraping' | 'pending' | 'error' |
 type Row = Pick<IngredientMasterDTO, 'supplierChannelLanded' | 'channelScrape'> &
 	Pick<OtherItemMasterDTO, 'supplierChannelLanded' | 'channelScrape'>;
 
-/** Show landed ₱ only after scrape workflow is marked complete (not before). */
+/** Show landed ₱ when we have a positive channel total (import or manual) and the row is not in error. */
 export function showMarketplaceLandedPrice(row: Row, channel: ChannelMarketplace): boolean {
 	const landed = row.supplierChannelLanded?.[channel] ?? 0;
-	return row.channelScrape?.[channel]?.status === 'complete' && landed > 0;
+	if (landed <= 0) return false;
+	if (row.channelScrape?.[channel]?.status === 'error') return false;
+	return true;
 }
 
-/**
- * Badge state: “Synced” only when scrape is explicitly complete and we have landed data.
- * Raw landed prices in seed data stay hidden from the UI until marked complete.
- */
+/** Badge state: reflects workflow + whether channel landed ₱ is populated (import or manual). */
 export function displayScrapeStatus(row: Row, channel: ChannelMarketplace): DisplayScrapeState {
 	const meta = row.channelScrape?.[channel];
 	const landed = row.supplierChannelLanded?.[channel] ?? 0;
 	if (meta?.status === 'error') return 'error';
 	if (meta?.status === 'scraping') return 'scraping';
-	if (meta?.status === 'complete' && landed > 0) return 'complete';
+	if (landed > 0) return 'complete';
 	if (meta?.status === 'pending' || meta?.url?.trim()) return 'pending';
 	return 'idle';
 }

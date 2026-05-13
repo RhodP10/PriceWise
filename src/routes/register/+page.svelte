@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { API_BASE } from '$lib/api/apiBase';
 
 	let email = $state('');
 	let password = $state('');
@@ -37,7 +38,7 @@
 		}
 
 		try {
-			const res = await fetch('http://localhost:8000/auth/register', {
+			const res = await fetch(`${API_BASE}/auth/register`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ email: email.trim(), password })

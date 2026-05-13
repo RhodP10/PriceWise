@@ -4,12 +4,20 @@
 	import MarketplaceCatalogTable from '$lib/components/catalog/MarketplaceCatalogTable.svelte';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
 	import { computeUnitCost, toBaseQuantity } from '$lib/utils/baseUnitCost';
+	import { scrapeMarketplaceFromBrowser } from '$lib/api/marketplaceScrapeClient';
 	import {
 		deleteIngredientMaster,
+		getMaster,
 		ingredientCatalog,
 		updateIngredientMaster,
 		MEASURE_UNIT_OPTIONS
 	} from '$lib/state/ingredientCatalog.svelte';
+	import {
+		parseLazadaProductJson,
+		parseShopeeItemGetJson,
+		type MarketplaceImportPatch,
+		type MarketplaceListingSubmitResult
+	} from '$lib/utils/marketplaceJsonImport';
 	import type { ChannelMarketplace, IngredientMasterDTO, MeasureUnit } from '$lib/types/recipe';
 
 	let search = $state('');
@@ -25,6 +33,7 @@
 	let scrapeOpen = $state(false);
 	let scrapeRowId = $state<string | null>(null);
 	let scrapeInitialUrl = $state('');
+	let scrapeChannel = $state<ChannelMarketplace>('lazada');
 
 	let deleteTarget = $state<{ id: string; name: string } | null>(null);
 
@@ -65,26 +74,159 @@
 
 	function openScrapeHelp(row: IngredientMasterDTO): void {
 		if (activeTab === 'local') return;
+		scrapeChannel = activeTab as ChannelMarketplace;
 		scrapeRowId = row.id;
 		scrapeInitialUrl = row.channelScrape?.[activeTab]?.url ?? '';
 		scrapeOpen = true;
 	}
 
-	function saveScrapeHint(url: string): void {
-		if (!scrapeRowId || activeTab === 'local') return;
-		const market = activeTab as ChannelMarketplace;
+	function applyMarketplaceImport(patch: MarketplaceImportPatch, listingUrl: string): void {
+		if (!scrapeRowId) return;
+		const m = getMaster(scrapeRowId);
+		if (!m) return;
+		const ch = scrapeChannel;
 		const ts = new Date().toISOString();
+		const urlToSave = listingUrl.trim() || m.channelScrape?.[ch]?.url;
 		updateIngredientMaster(scrapeRowId, {
+			supplierChannelLanded: patch.supplierChannelLanded,
 			channelScrape: {
-				[market]: {
-					url: url || undefined,
-					status: url ? 'pending' : 'idle',
-					updatedAt: ts
+				[ch]: {
+					status: 'complete',
+					url: urlToSave,
+					updatedAt: ts,
+					listingPackageSize: patch.listingPackageSize,
+					listingPackageUnit: patch.listingPackageUnit,
+					listingShippingFee: patch.listingShippingFee,
+					listingBaseQuantity: patch.listingBaseQuantity,
+					listingBaseUnit: patch.listingBaseUnit
 				}
 			}
 		});
 		scrapeRowId = null;
 		scrapeInitialUrl = '';
+	}
+
+	async function submitListingUrl(url: string): Promise<MarketplaceListingSubmitResult> {
+		if (!scrapeRowId) return { kind: 'error', message: 'No catalog row selected.' };
+		const id = scrapeRowId;
+		const market = scrapeChannel;
+		const ts = new Date().toISOString();
+
+		if (!url.trim()) {
+			updateIngredientMaster(id, {
+				channelScrape: {
+					[market]: { url: undefined, status: 'idle', updatedAt: ts }
+				}
+			});
+			scrapeRowId = null;
+			scrapeInitialUrl = '';
+			return { kind: 'success' };
+		}
+
+		updateIngredientMaster(id, {
+			channelScrape: {
+				[market]: { url, status: 'scraping', updatedAt: ts }
+			}
+		});
+
+		const row = getMaster(id);
+		if (!row) {
+			return { kind: 'error', message: 'This ingredient was removed from the catalog.' };
+		}
+
+		try {
+			const scrape = await scrapeMarketplaceFromBrowser(url, market);
+			if (!scrape.ok) {
+				updateIngredientMaster(id, {
+					channelScrape: {
+						[market]: { url, status: 'error', updatedAt: new Date().toISOString() }
+					}
+				});
+				return { kind: 'error', message: scrape.error };
+			}
+
+			if (market === 'shopee') {
+				const sp = parseShopeeItemGetJson(scrape.bodyJson, row);
+				if (!sp.ok) {
+					if (sp.needVariant === true) {
+						return {
+							kind: 'shopee_variants',
+							variants: sp.variants,
+							bodyJson: scrape.bodyJson
+						};
+					}
+					updateIngredientMaster(id, {
+						channelScrape: {
+							[market]: { url, status: 'error', updatedAt: new Date().toISOString() }
+						}
+					});
+					return { kind: 'error', message: sp.error };
+				}
+				const ts2 = new Date().toISOString();
+				updateIngredientMaster(id, {
+					supplierChannelLanded: sp.patch.supplierChannelLanded,
+					channelScrape: {
+						[market]: {
+							status: 'complete',
+							url,
+							updatedAt: ts2,
+							listingPackageSize: sp.patch.listingPackageSize,
+							listingPackageUnit: sp.patch.listingPackageUnit,
+							listingShippingFee: sp.patch.listingShippingFee,
+							listingBaseQuantity: sp.patch.listingBaseQuantity,
+							listingBaseUnit: sp.patch.listingBaseUnit
+						}
+					}
+				});
+				scrapeRowId = null;
+				scrapeInitialUrl = '';
+				return { kind: 'success' };
+			}
+
+			const lp = parseLazadaProductJson(scrape.bodyJson, row);
+			if (!lp.ok) {
+				updateIngredientMaster(id, {
+					channelScrape: {
+						[market]: { url, status: 'error', updatedAt: new Date().toISOString() }
+					}
+				});
+				return { kind: 'error', message: lp.error };
+			}
+
+			const ts2 = new Date().toISOString();
+			updateIngredientMaster(id, {
+				supplierChannelLanded: lp.patch.supplierChannelLanded,
+				channelScrape: {
+					[market]: {
+						status: 'complete',
+						url,
+						updatedAt: ts2,
+						listingPackageSize: lp.patch.listingPackageSize,
+						listingPackageUnit: lp.patch.listingPackageUnit,
+						listingShippingFee: lp.patch.listingShippingFee,
+						listingBaseQuantity: lp.patch.listingBaseQuantity,
+						listingBaseUnit: lp.patch.listingBaseUnit
+					}
+				}
+			});
+			scrapeRowId = null;
+			scrapeInitialUrl = '';
+			return { kind: 'success' };
+		} catch (e) {
+			updateIngredientMaster(id, {
+				channelScrape: {
+					[market]: {
+						url,
+						status: 'error',
+						updatedAt: new Date().toISOString()
+					}
+				}
+			});
+			return {
+				kind: 'error',
+				message: e instanceof Error ? e.message : 'Sync failed.'
+			};
+		}
 	}
 
 	function markScrapeDone(row: IngredientMasterDTO): void {
@@ -331,8 +473,11 @@
 <ChannelScrapeHelpModal
 	open={scrapeOpen}
 	initialUrl={scrapeInitialUrl}
-	channelLabel={channelLabel}
-	onSave={saveScrapeHint}
+	marketplace={scrapeChannel}
+	channelLabel={scrapeChannel === 'lazada' ? 'Lazada' : 'Shopee'}
+	localRow={scrapeRowId ? (getMaster(scrapeRowId) ?? null) : null}
+	onSubmitListing={submitListingUrl}
+	onApplyImport={applyMarketplaceImport}
 	onClose={() => (scrapeOpen = false)}
 />
 

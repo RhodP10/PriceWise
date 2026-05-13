@@ -1,3 +1,5 @@
+import { API_BASE } from '$lib/api/apiBase';
+
 type AuthUser = { id: number; email: string } | null;
 
 export const authState = $state({
@@ -25,7 +27,7 @@ export function clearAuth(): void {
 
 export async function fetchMe(): Promise<void> {
 	if (!authState.token) return;
-	const res = await fetch('http://localhost:8000/auth/me', {
+	const res = await fetch(`${API_BASE}/auth/me`, {
 		headers: { Authorization: `Bearer ${authState.token}` }
 	});
 	if (!res.ok) {

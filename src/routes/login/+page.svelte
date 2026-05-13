@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { API_BASE } from '$lib/api/apiBase';
 	import { saveToken, fetchMe } from '$lib/state/auth.svelte';
 
 	let email = $state('');
@@ -17,7 +18,7 @@
 			const body = new URLSearchParams();
 			body.set('username', email.trim());
 			body.set('password', password);
-			const res = await fetch('http://localhost:8000/auth/login', {
+			const res = await fetch(`${API_BASE}/auth/login`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body
