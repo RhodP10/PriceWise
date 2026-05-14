@@ -15,6 +15,7 @@
 		parseShopeeProductUrl,
 		shopeeItemGetApiUrl
 	} from '$lib/utils/marketplaceUrlHints';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
 		open,
@@ -326,9 +327,7 @@
 								onclick={() => applyShopeeVariantChoice(v)}
 							>
 								{v.name}
-								<span class="block text-[13px] font-medium text-violet-700"
-									>List ₱{v.pricePeso.toFixed(2)}</span
-								>
+								<span class="block text-[13px] font-medium text-violet-700">List {formatPhp(v.pricePeso)}</span>
 							</button>
 						{/each}
 					</div>

@@ -22,9 +22,24 @@ export interface MarketplaceStatusPresentation {
 /** Rich dashboard-style status copy (no raw supplier names). */
 export function marketplaceStatusPresentation(
 	row: Pick<IngredientMasterDTO, 'supplierChannelLanded' | 'channelScrape'> &
-		Pick<OtherItemMasterDTO, 'supplierChannelLanded' | 'channelScrape'>,
+		Pick<OtherItemMasterDTO, 'supplierChannelLanded' | 'channelScrape'> & {
+			marketplaceSourcingLocalOnly?: boolean;
+		},
 	channel: ChannelMarketplace
 ): MarketplaceStatusPresentation {
+	if (row.marketplaceSourcingLocalOnly === true) {
+		return {
+			tier: 'success',
+			shortLabel: 'Local-only',
+			description:
+				'Marketplace COGS for recipes uses your catalog unit cost — no listing required for this SKU.',
+			pulse: false,
+			shimmer: false,
+			badgeClass:
+				'bg-violet-500/15 text-violet-800 ring-violet-500/25 dark:bg-violet-500/20 dark:text-violet-100',
+			glowClass: ''
+		};
+	}
 	const st = displayScrapeStatus(row, channel);
 	const meta = row.channelScrape?.[channel];
 	const landed = row.supplierChannelLanded?.[channel] ?? 0;

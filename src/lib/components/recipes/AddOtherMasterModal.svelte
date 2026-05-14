@@ -3,6 +3,7 @@
 	import { MEASURE_UNIT_OPTIONS } from '$lib/state/ingredientCatalog.svelte';
 	import { addOtherMaster, computeOtherUnitCost } from '$lib/state/otherCatalog.svelte';
 	import { toBaseQuantity } from '$lib/utils/baseUnitCost';
+	import { formatDecimal, formatPhp } from '$lib/utils/numberFormat';
 
 	let {
 		open = $bindable(false)
@@ -16,6 +17,7 @@
 	let packageSize = $state(100);
 	let shippingFee = $state(0);
 	let packageUnit = $state<MeasureUnit>('piece');
+	let marketplaceSourcingLocalOnly = $state(false);
 
 	let backdrop: HTMLDivElement | undefined = $state();
 
@@ -31,6 +33,7 @@
 		packageSize = 100;
 		shippingFee = 0;
 		packageUnit = 'piece';
+		marketplaceSourcingLocalOnly = false;
 	}
 
 	function submit(e: Event): void {
@@ -42,7 +45,8 @@
 			packagePrice,
 			packageSize,
 			packageUnit,
-			shippingFee
+			shippingFee,
+			marketplaceSourcingLocalOnly
 		});
 		reset();
 		open = false;
@@ -167,12 +171,26 @@
 					</div>
 				</div>
 
+				<label class="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2.5 text-sm">
+					<input
+						type="checkbox"
+						bind:checked={marketplaceSourcingLocalOnly}
+						class="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
+					/>
+					<span>
+						<span class="font-semibold text-zinc-800">Local-only SKU</span>
+						<span class="mt-0.5 block text-xs leading-snug text-zinc-600">
+							Not bought on Lazada/Shopee. Recipe marketplace COGS uses your catalog unit cost here.
+						</span>
+					</span>
+				</label>
+
 				<div class="rounded-xl bg-sky-50 px-4 py-3 text-sm">
 					<div class="text-sky-900">
-						Base quantity: <strong>{previewBase.quantity.toFixed(2)}</strong> {previewBase.unit}
+						Base quantity: <strong>{formatDecimal(previewBase.quantity)}</strong> {previewBase.unit}
 					</div>
 					<span class="text-sky-900">Computed unit cost:</span>
-					<strong class="ml-2 tabular-nums text-sky-950">₱{previewUnitCost.toFixed(4)}</strong>
+					<strong class="ml-2 tabular-nums text-sky-950">{formatPhp(previewUnitCost)}</strong>
 					<span class="text-sky-800"> / base unit</span>
 				</div>
 

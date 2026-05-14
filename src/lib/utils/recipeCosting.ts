@@ -4,17 +4,21 @@ import type {
 	RecipeDTO,
 	RecipePricingDTO
 } from '$lib/types/recipe';
+import { channelUnitCostFromLanded } from '$lib/utils/channelCatalogDisplay';
 import { convertQuantity } from '$lib/utils/unitConvert';
 
 type MarketplaceChannel = 'lazada' | 'shopee';
 
-function unitCostFromMarketplaceLanded(
+/** Same unit economics as Lazada/Shopee catalog tables (listing base qty when present). */
+function unitCostForMarketplaceLine(
 	m: IngredientMasterDTO | OtherItemMasterDTO,
 	ch: MarketplaceChannel
 ): number | null {
-	const v = m.supplierChannelLanded?.[ch];
-	if (typeof v !== 'number' || v <= 0 || m.baseQuantity <= 0) return null;
-	return v / m.baseQuantity;
+	if (m.marketplaceSourcingLocalOnly === true) {
+		if (typeof m.unitCost === 'number' && m.unitCost > 0) return m.unitCost;
+		return null;
+	}
+	return channelUnitCostFromLanded(m, ch);
 }
 
 export function lineTotal(qty: number, costPerUnit: number): number {
@@ -64,7 +68,7 @@ export function perOrderTotalCostForMarketplace(
 	for (const line of recipe.ingredientLines) {
 		const m = ingredientMasters.find((x) => x.id === line.ingredientMasterId);
 		if (!m) return null;
-		const u = unitCostFromMarketplaceLanded(m, ch);
+		const u = unitCostForMarketplaceLine(m, ch);
 		if (u === null) return null;
 		const qtyInMasterUnit = convertQuantity(line.quantity, line.unit, m.baseUnit);
 		if (qtyInMasterUnit === null) return null;
@@ -73,7 +77,7 @@ export function perOrderTotalCostForMarketplace(
 	for (const line of recipe.otherLines) {
 		const m = otherMasters.find((x) => x.id === line.otherMasterId);
 		if (!m) return null;
-		const u = unitCostFromMarketplaceLanded(m, ch);
+		const u = unitCostForMarketplaceLine(m, ch);
 		if (u === null) return null;
 		const qtyInMasterUnit = convertQuantity(line.quantity, line.unit, m.baseUnit);
 		if (qtyInMasterUnit === null) return null;
@@ -86,7 +90,8 @@ export type RecipeMarketSavingsChannel = 'lazada' | 'shopee';
 
 /**
  * Compare catalog (local package) COGS vs Shopee/Lazada landed COGS from scraped marketplace prices.
- * A channel counts only when every ingredient and “other” line has that channel’s landed package total filled in.
+ * A channel counts when every line can be priced: landed package ÷ listing base qty (same as catalog tables), or
+ * rows marked local-only use catalog unit cost instead of requiring a listing.
  */
 export function computeRecipeMarketIngredientSavingsVsCatalog(
 	recipe: RecipeDTO,
@@ -231,7 +236,7 @@ export function recipePricingMatchesSuggested(
 	);
 }
 
-/** Local + optional marketplace list prices; Shopee/Lazada stay 0 until every line has that channel’s landed price. */
+/** Local + optional marketplace list prices; Shopee/Lazada stay 0 until every recipe line has marketplace unit cost (landed ÷ listing base, or local-only catalog). */
 export function computeAutoSyncedRecipePricing(
 	recipe: RecipeDTO,
 	ingredientMasters: IngredientMasterDTO[],

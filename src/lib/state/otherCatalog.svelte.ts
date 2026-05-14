@@ -75,7 +75,8 @@ export function addOtherMaster(input: OtherItemMasterInput): OtherItemMasterDTO 
 		baseUnit: base.unit,
 		unitCost,
 		addedAt: now,
-		unitCostHistory: [{ recordedAt: now, unitCost }]
+		unitCostHistory: [{ recordedAt: now, unitCost }],
+		marketplaceSourcingLocalOnly: input.marketplaceSourcingLocalOnly === true
 	};
 	otherCatalog.items = [...otherCatalog.items, row];
 	return row;
@@ -86,7 +87,13 @@ export function updateOtherMaster(
 	patch: Partial<
 		Pick<
 			OtherItemMasterDTO,
-			'name' | 'supplier' | 'packagePrice' | 'packageSize' | 'packageUnit' | 'shippingFee'
+			| 'name'
+			| 'supplier'
+			| 'packagePrice'
+			| 'packageSize'
+			| 'packageUnit'
+			| 'shippingFee'
+			| 'marketplaceSourcingLocalOnly'
 		>
 	> & {
 		channelScrape?: Partial<Record<ChannelMarketplace, Partial<ChannelScrapeInfo>>>;

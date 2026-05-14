@@ -7,6 +7,7 @@
 		opexStore,
 		updateOpexLine
 	} from '$lib/state/opexStore.svelte';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	let labelDraft = $state('');
 	let amountDraft = $state(0);
@@ -72,7 +73,7 @@
 			<!-- Monthly Total Card inside Header -->
 			<div class="glass-dark flex flex-col items-center justify-center rounded-2xl px-8 py-6 shadow-lg lg:min-w-[240px]">
 				<p class="text-xs font-bold uppercase tracking-wider text-zinc-400">Monthly Total</p>
-				<p class="mt-2 text-4xl font-bold tabular-nums text-emerald-400">₱{monthly.toFixed(2)}</p>
+				<p class="mt-2 text-4xl font-bold tabular-nums text-emerald-400">{formatPhp(monthly)}</p>
 			</div>
 		</div>
 	</div>
@@ -152,7 +153,7 @@
 									</div>
 								</td>
 								<td class="px-6 py-4 text-right">
-									<span class="font-bold tabular-nums text-zinc-900">₱{row.amountPerMonth.toFixed(2)}</span>
+									<span class="font-bold tabular-nums text-zinc-900">{formatPhp(row.amountPerMonth)}</span>
 								</td>
 								<td class="px-6 py-4 text-right">
 									<div class="flex justify-end gap-1">

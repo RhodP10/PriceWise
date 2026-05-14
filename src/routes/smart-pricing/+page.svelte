@@ -9,6 +9,7 @@
 	import { authState } from '$lib/state/auth.svelte';
 	import type { SmartPricingAnalysisResult } from '$lib/types/smartPricing';
 	import { buildSmartPricingPayload } from '$lib/utils/smartPricingPayload';
+	import { formatPhp, formatPercent1, formatPercent1Signed } from '$lib/utils/numberFormat';
 
 	let loading = $state(false);
 	let error = $state('');
@@ -174,13 +175,13 @@
 						{#each data.sellingPriceRecommendations as row (row.recipeId)}
 							<tr class="hover:bg-zinc-50/80">
 								<td class="px-6 py-3 font-semibold text-zinc-900">{row.name}</td>
-								<td class="px-6 py-3 text-right tabular-nums text-zinc-600">₱{row.cogs.toFixed(2)}</td>
-								<td class="px-6 py-3 text-right tabular-nums text-zinc-900">₱{row.current.toFixed(2)}</td>
+								<td class="px-6 py-3 text-right tabular-nums text-zinc-600">{formatPhp(row.cogs)}</td>
+								<td class="px-6 py-3 text-right tabular-nums text-zinc-900">{formatPhp(row.current)}</td>
 								<td class="px-6 py-3 text-right tabular-nums font-bold text-emerald-700">
-									₱{row.suggested.toFixed(2)}
+									{formatPhp(row.suggested)}
 								</td>
-								<td class="px-6 py-3 text-right tabular-nums text-zinc-700">{row.deltaPctVsCurrent.toFixed(1)}%</td>
-								<td class="px-6 py-3 text-right tabular-nums text-zinc-600">{row.marginPctCurrent.toFixed(1)}%</td>
+								<td class="px-6 py-3 text-right tabular-nums text-zinc-700">{formatPercent1(row.deltaPctVsCurrent)}</td>
+								<td class="px-6 py-3 text-right tabular-nums text-zinc-600">{formatPercent1(row.marginPctCurrent)}</td>
 								<td class="px-6 py-3">
 									<div class="flex items-center gap-2">
 										<div class="h-2 flex-1 max-w-[140px] overflow-hidden rounded-full bg-zinc-200">
@@ -223,12 +224,12 @@
 							{#each data.ingredientForecasts as f (f.id)}
 								<tr>
 									<td class="px-5 py-2.5 font-medium text-zinc-900">{f.name}</td>
-									<td class="px-5 py-2.5 text-right tabular-nums text-zinc-600">₱{f.current.toFixed(4)}</td>
+									<td class="px-5 py-2.5 text-right tabular-nums text-zinc-600">{formatPhp(f.current)}</td>
 									<td class="px-5 py-2.5 text-right tabular-nums font-semibold text-violet-700">
-										₱{f.predictedNext.toFixed(4)}
+										{formatPhp(f.predictedNext)}
 									</td>
 									<td class="px-5 py-2.5 text-right text-xs text-zinc-500">
-										{f.trendPct === null ? '—' : `${f.trendPct > 0 ? '+' : ''}${f.trendPct.toFixed(1)}%`}
+										{f.trendPct === null ? '—' : formatPercent1Signed(f.trendPct)}
 									</td>
 								</tr>
 							{/each}
@@ -314,9 +315,9 @@
 						<li class="flex justify-between rounded-xl bg-zinc-50 px-4 py-2 tabular-nums">
 							<span class="font-medium text-zinc-800">{p.name}</span>
 							<span class="text-zinc-600">
-								₱{p.profitPerOrderCurrent.toFixed(2)}
+								{formatPhp(p.profitPerOrderCurrent)}
 								<span class="text-zinc-400">→</span>
-								<span class="font-semibold text-emerald-700">₱{p.profitPerOrderSuggested.toFixed(2)}</span>
+								<span class="font-semibold text-emerald-700">{formatPhp(p.profitPerOrderSuggested)}</span>
 							</span>
 						</li>
 					{/each}

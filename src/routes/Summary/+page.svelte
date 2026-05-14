@@ -16,6 +16,7 @@
 	import { upsertMonthlySummaryOnServer } from '$lib/api/monthlySummariesClient';
 	import { computeLiveMonthKpis } from '$lib/utils/dashboardFinance';
 	import { bestSupplierLabel } from '$lib/utils/supplierAnalytics';
+	import { formatPhp } from '$lib/utils/numberFormat';
 	import type { RecipeSalesSnapshotEntry } from '$lib/types/statistics';
 
 	const ingredientMasters = $derived(ingredientCatalog.items);
@@ -168,7 +169,7 @@
 					</div>
 					<div>
 						<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Monthly OPEX</p>
-						<p class="mt-0.5 text-2xl font-bold tabular-nums text-zinc-900">₱{monthlyOpex.toFixed(2)}</p>
+						<p class="mt-0.5 text-2xl font-bold tabular-nums text-zinc-900">{formatPhp(monthlyOpex)}</p>
 					</div>
 				</div>
 			</div>
@@ -179,7 +180,7 @@
 					</div>
 					<div>
 						<p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Profit from orders (month)</p>
-						<p class="mt-0.5 text-2xl font-bold tabular-nums text-emerald-700">₱{totalProfitFromOrders.toFixed(2)}</p>
+						<p class="mt-0.5 text-2xl font-bold tabular-nums text-emerald-700">{formatPhp(totalProfitFromOrders)}</p>
 					</div>
 				</div>
 			</div>
@@ -195,7 +196,7 @@
 							class:text-red-700={netProfit < 0}
 							class:text-emerald-900={netProfit >= 0}
 						>
-							₱{netProfit.toFixed(2)}
+							{formatPhp(netProfit)}
 						</p>
 						<p class="mt-1 text-xs text-emerald-900/80">Sum of recipe profit/month − OPEX. No orders ⇒ net ≈ −OPEX.</p>
 					</div>
@@ -223,14 +224,14 @@
 					{#each rowsWithBreakeven as row (row.id)}
 						<tr class="group transition-colors hover:bg-zinc-50/50">
 							<td class="px-6 py-4 font-semibold text-zinc-900">{row.name}</td>
-							<td class="px-6 py-4 text-right tabular-nums text-zinc-700">₱{row.sellingPrice.toFixed(2)}</td>
-							<td class="px-6 py-4 text-right tabular-nums text-zinc-600">₱{row.totalCost.toFixed(2)}</td>
+							<td class="px-6 py-4 text-right tabular-nums text-zinc-700">{formatPhp(row.sellingPrice)}</td>
+							<td class="px-6 py-4 text-right tabular-nums text-zinc-600">{formatPhp(row.totalCost)}</td>
 							<td
 								class="px-6 py-4 text-right tabular-nums font-semibold"
 								class:text-emerald-700={row.profitPerOrder >= 0}
 								class:text-red-600={row.profitPerOrder < 0}
 							>
-								₱{row.profitPerOrder.toFixed(2)}
+								{formatPhp(row.profitPerOrder)}
 							</td>
 							<td class="px-6 py-4 text-right">
 								<input
@@ -243,13 +244,13 @@
 									class="w-24 rounded-xl border border-zinc-200 bg-white px-2 py-1.5 text-right text-sm tabular-nums focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
 								/>
 							</td>
-							<td class="px-6 py-4 text-right tabular-nums text-zinc-700">₱{row.revenuePerMonth.toFixed(2)}</td>
+							<td class="px-6 py-4 text-right tabular-nums text-zinc-700">{formatPhp(row.revenuePerMonth)}</td>
 							<td
 								class="px-6 py-4 text-right tabular-nums font-semibold"
 								class:text-emerald-700={row.profitPerMonth >= 0}
 								class:text-red-600={row.profitPerMonth < 0}
 							>
-								₱{row.profitPerMonth.toFixed(2)}
+								{formatPhp(row.profitPerMonth)}
 							</td>
 							<td class="px-6 py-4 text-right tabular-nums font-semibold text-zinc-900">
 								{#if row.breakevenOrdersOnlyThisRecipe !== null}
@@ -278,7 +279,7 @@
 
 	<p class="text-xs leading-relaxed text-zinc-500">
 		*Breakeven orders (this recipe only): extra orders needed if <strong>only this drink</strong> contributed profit at
-		the current profit/order to wipe out today’s negative net (₱{Math.max(0, -netProfit).toFixed(2)} shortfall). If
+		the current profit/order to wipe out today’s negative net ({formatPhp(Math.max(0, -netProfit))} shortfall). If
 		profit/order ≤ 0 or net ≥ 0, shown as —.
 	</p>
 </section>

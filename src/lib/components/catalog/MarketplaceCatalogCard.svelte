@@ -12,6 +12,7 @@
 		marketplaceStatusPresentation,
 		marketplaceVsLocalMarginPct
 	} from '$lib/utils/marketplaceCatalogUi';
+	import { formatPhp, formatPercent1Signed } from '$lib/utils/numberFormat';
 
 	type Row = IngredientMasterDTO | OtherItemMasterDTO;
 
@@ -81,7 +82,7 @@
 				</p>
 				<p class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
 					{#if showMarketplaceLandedPrice(row, channel) && pkg !== null}
-						₱{pkg.toFixed(2)}
+						{formatPhp(pkg)}
 					{:else}
 						<span class="text-zinc-400">—</span>
 					{/if}
@@ -98,7 +99,7 @@
 					class:text-zinc-400={marginVsLocal === null}
 				>
 					{#if marginVsLocal !== null}
-						{marginVsLocal >= 0 ? '+' : ''}{marginVsLocal.toFixed(1)}%
+						{formatPercent1Signed(marginVsLocal)}
 					{:else}
 						—
 					{/if}
@@ -111,9 +112,9 @@
 		<div class="mt-auto space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-700">
 			<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
 				{#if unit !== null && showMarketplaceLandedPrice(row, channel)}
-					Marketplace unit ₱{unit.toFixed(4)} · local catalog ref ₱{row.unitCost.toFixed(4)}
+					Marketplace unit {formatPhp(unit)} · local catalog ref {formatPhp(row.unitCost)}
 				{:else}
-					Local catalog ref ₱{row.unitCost.toFixed(4)} · unlock after sync
+					Local catalog ref {formatPhp(row.unitCost)} · unlock after sync
 				{/if}
 			</p>
 			<p class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">

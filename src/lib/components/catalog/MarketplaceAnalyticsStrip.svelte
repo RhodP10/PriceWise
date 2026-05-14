@@ -5,6 +5,7 @@
 		aggregateMarketplacePrices,
 		listingAvailabilityPct
 	} from '$lib/utils/marketplaceCatalogUi';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
 		items,
@@ -58,7 +59,7 @@
 			<p class="text-[11px] font-medium uppercase text-zinc-500 dark:text-zinc-400">Avg landed pkg</p>
 			<p class="mt-1 text-xl font-semibold tabular-nums text-zinc-900 dark:text-white">
 				{#if agg.avg !== null}
-					₱{agg.avg.toFixed(2)}
+					{formatPhp(agg.avg)}
 				{:else}
 					<span class="text-zinc-400">—</span>
 				{/if}
@@ -68,7 +69,7 @@
 			<p class="text-[11px] font-medium uppercase text-zinc-500 dark:text-zinc-400">Low / High</p>
 			<p class="mt-1 text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
 				{#if agg.min !== null && agg.max !== null}
-					₱{agg.min.toFixed(2)} · ₱{agg.max.toFixed(2)}
+					{formatPhp(agg.min)} · {formatPhp(agg.max)}
 				{:else}
 					<span class="text-zinc-400">—</span>
 				{/if}

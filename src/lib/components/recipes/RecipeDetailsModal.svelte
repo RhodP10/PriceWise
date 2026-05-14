@@ -18,6 +18,7 @@
 	} from '$lib/state/recipes.svelte';
 	import { convertQuantity } from '$lib/utils/unitConvert';
 	import { recipeIngredientSubtotal, recipeOtherSubtotal } from '$lib/utils/recipeCosting';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
 		recipe,
@@ -147,7 +148,7 @@
 	});
 
 	function fmt(n: number): string {
-		return `₱${n.toFixed(2)}`;
+		return formatPhp(n);
 	}
 
 	function catalogPickLabel(name: string, supplier: string): string {

@@ -9,6 +9,7 @@
 		type RecipeMarketSavingsChannel
 	} from '$lib/utils/recipeCosting';
 	import RecipeCardHelp from '$lib/components/recipes/RecipeCardHelp.svelte';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
 		recipe,
@@ -22,7 +23,9 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
-	const linesCount = $derived(recipe.ingredientLines.length + recipe.otherLines.length);
+	const ingredientLineCount = $derived(recipe.ingredientLines.length);
+	const otherLineCount = $derived(recipe.otherLines.length);
+	const linesCount = $derived(ingredientLineCount + otherLineCount);
 	const ingSavings = $derived.by(() =>
 		computeRecipeMarketIngredientSavingsVsCatalog(recipe, masters, otherMasters)
 	);
@@ -66,12 +69,12 @@
 
 	function fmtCogs(v: number | null): string {
 		if (v === null || !Number.isFinite(v) || v < 0) return '—';
-		return `₱${v.toFixed(2)}`;
+		return formatPhp(v);
 	}
 
 	function fmtSell(n: number): string {
 		if (!Number.isFinite(n) || n <= 0) return '—';
-		return `₱${n.toFixed(2)}`;
+		return formatPhp(n);
 	}
 
 	/** One help panel open at a time; ? stops propagation so the card does not open Costing. */
@@ -119,47 +122,25 @@
 					</h2>
 				</div>
 				<div class="flex flex-wrap gap-2 pt-2">
-					<span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+					<span
+						class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500"
+						title="Ingredient lines in this recipe"
+					>
 						Ingredients
+						<span class="rounded bg-zinc-200/90 px-1.5 py-0.5 tabular-nums text-zinc-800">{ingredientLineCount}</span>
 					</span>
-					<span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+					<span
+						class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500"
+						title="Other / packaging lines in this recipe"
+					>
 						Others
+						<span class="rounded bg-zinc-200/90 px-1.5 py-0.5 tabular-nums text-zinc-800">{otherLineCount}</span>
 					</span>
 				</div>
 			</div>
 		</div>
 
 		<div class="mt-6 flex flex-col gap-4">
-			{#if ingSavings.channelsCheaperThanCatalog.length > 0}
-				{@const lead = ingSavings.channelsCheaperThanCatalog[0]!}
-				<div
-					class="rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50 to-teal-50/90 p-4 shadow-sm ring-1 ring-emerald-100"
-					aria-live="polite"
-				>
-					<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
-						Save on ingredients
-					</p>
-					<p class="mt-1 text-2xl font-bold tabular-nums tracking-tight text-emerald-950">
-						₱{lead.savePerOrder.toFixed(2)}
-						<span class="text-lg font-bold text-emerald-900"> / order</span>
-					</p>
-					<p class="mt-1 text-sm font-semibold text-emerald-900">
-						Cheaper on {marketLabel(lead.channel)} than your local COGS
-					</p>
-					{#if ingSavings.channelsCheaperThanCatalog.length > 1}
-						<p class="mt-2 text-[11px] leading-snug text-emerald-900/85">
-							Also cheaper than local:
-							{#each ingSavings.channelsCheaperThanCatalog.slice(1) as row, i (row.channel)}
-								{#if i > 0}<span class="text-emerald-700/70"> · </span>{/if}
-								<span class="font-medium"
-									>{marketLabel(row.channel)} (−₱{row.savePerOrder.toFixed(2)})</span
-								>
-							{/each}
-						</p>
-					{/if}
-				</div>
-			{/if}
-
 			<div class="rounded-2xl border border-teal-100/80 bg-gradient-to-br from-white to-teal-50/40 p-4 shadow-inner">
 				<RecipeCardHelp
 					expanded={helpOpen === 'sell'}
@@ -173,17 +154,14 @@
 					{/snippet}
 					{#snippet children()}
 						<p>
-							Local list price uses your target margin (same as Costing). Shopee and Lazada list prices
-							appear when every ingredient and other line in this recipe has that channel’s landed total
-							filled from a scrape.
+							This card shows your <strong class="text-zinc-800">local</strong> suggested list price from
+							target margin on catalog COGS (same as Costing). Shopee and Lazada list prices stay in the
+							Costing view when every line that needs a listing has that channel’s landed total (or is
+							marked local-only on the catalog).
 						</p>
 					{/snippet}
 				</RecipeCardHelp>
 				<p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900">{fmtSell(suggestedList.local)}</p>
-				<div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-zinc-600">
-					<span>Shopee list: <span class="font-semibold text-zinc-900">{fmtSell(suggestedList.shopee)}</span></span>
-					<span>Lazada list: <span class="font-semibold text-zinc-900">{fmtSell(suggestedList.lazada)}</span></span>
-				</div>
 			</div>
 
 			<RecipeCardHelp
@@ -197,8 +175,9 @@
 					{#snippet children()}
 						<p>
 							Per order ingredient cost for this recipe. Local uses your catalog unit costs. Shopee and
-							Lazada use landed package price ÷ base quantity from each row, only when every line has that
-							channel filled. Totals for each channel are in the boxes below.
+							Lazada use the same landed ÷ base rules as your marketplace catalog tabs (including listing
+							base qty from a sync). Lines marked local-only use catalog cost for those channels. Totals
+							appear when every line is covered.
 						</p>
 					{/snippet}
 				</RecipeCardHelp>
@@ -219,7 +198,7 @@
 					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'shopee'
 						? 'bg-emerald-100 ring-2 ring-emerald-500'
 						: 'bg-emerald-50/80 ring-1 ring-emerald-100'}"
-					title="Same recipe using Shopee landed ÷ base qty on every line."
+					title="Shopee: landed unit cost per line (listing base qty when synced), or local-only catalog cost."
 				>
 					<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Shopee</p>
 					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtCogs(ingSavings.shopeeCogs)}</p>
@@ -228,7 +207,7 @@
 					class="flex flex-col gap-1 rounded-2xl p-3 shadow-inner {cheapestSource === 'lazada'
 						? 'bg-sky-100 ring-2 ring-sky-500'
 						: 'bg-sky-50/80 ring-1 ring-sky-100'}"
-					title="Same recipe using Lazada landed ÷ base qty on every line."
+					title="Lazada: landed unit cost per line (listing base qty when synced), or local-only catalog cost."
 				>
 					<p class="text-[10px] font-bold uppercase tracking-wider text-sky-700">Lazada</p>
 					<p class="text-sm font-bold tabular-nums text-zinc-900">{fmtCogs(ingSavings.lazadaCogs)}</p>
@@ -250,9 +229,9 @@
 						<p>
 							Shows ingredient savings when a marketplace is cheaper than your local COGS, or how much you
 							save by staying local vs marketplace when those channels are filled. Uses COGS only, not
-							selling price with margin. Add Shopee and Lazada landed totals on every ingredient and other
-							in this recipe to unlock marketplace comparisons. If the summary shows “—”, open this help
-							or add lines to the recipe first.
+							selling price with margin. Fill landed prices on the catalog (or mark ice-style SKUs as
+							local-only) so every recipe line is covered. If the summary shows “—”, open this help or add
+							lines to the recipe first.
 						</p>
 					{/snippet}
 				</RecipeCardHelp>
@@ -260,19 +239,20 @@
 				{#if linesCount === 0}
 					<p class="mt-1 text-xs text-zinc-500">—</p>
 				{:else if ingSavings.channelsCheaperThanCatalog.length > 0}
-					<p class="mt-1 text-xs leading-snug text-emerald-900">
-						Buying these ingredients on {marketLabel(ingSavings.channelsCheaperThanCatalog[0]!.channel)}
-						saves <span class="font-semibold tabular-nums"
-							>₱{ingSavings.channelsCheaperThanCatalog[0]!.savePerOrder.toFixed(2)}</span
-						>
-						per order vs your local COGS.
-					</p>
+					<div class="mt-1 space-y-1.5">
+						{#each ingSavings.channelsCheaperThanCatalog as row (row.channel)}
+							<p class="text-xs leading-snug text-emerald-900">
+								Buying these ingredients on {marketLabel(row.channel)} saves
+								<span class="font-semibold tabular-nums">{formatPhp(row.savePerOrder)}</span>.
+							</p>
+						{/each}
+					</div>
 				{:else if ingSavings.catalogVsMarketplaceSavings.length > 0}
 					<ul class="mt-1 list-none space-y-1 text-xs tabular-nums text-zinc-900">
 						{#each ingSavings.catalogVsMarketplaceSavings as row (row.channel)}
 							<li class="flex items-baseline justify-between gap-2 border-b border-zinc-100/90 pb-1 last:border-0 last:pb-0">
 								<span class="text-zinc-600">vs {marketLabel(row.channel)}</span>
-								<span class="font-bold text-emerald-800">save ₱{row.savePerOrder.toFixed(2)} / order</span>
+								<span class="font-bold text-emerald-800">save {formatPhp(row.savePerOrder)} / order</span>
 							</li>
 						{/each}
 					</ul>

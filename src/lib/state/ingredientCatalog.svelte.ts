@@ -75,7 +75,8 @@ export function addIngredientMaster(input: IngredientMasterInput): IngredientMas
 		baseUnit: base.unit,
 		unitCost,
 		addedAt: now,
-		unitCostHistory: [{ recordedAt: now, unitCost }]
+		unitCostHistory: [{ recordedAt: now, unitCost }],
+		marketplaceSourcingLocalOnly: input.marketplaceSourcingLocalOnly === true
 	};
 	ingredientCatalog.items = [...ingredientCatalog.items, row];
 	return row;
@@ -86,7 +87,13 @@ export function updateIngredientMaster(
 	patch: Partial<
 		Pick<
 			IngredientMasterDTO,
-			'name' | 'supplier' | 'packagePrice' | 'packageSize' | 'packageUnit' | 'shippingFee'
+			| 'name'
+			| 'supplier'
+			| 'packagePrice'
+			| 'packageSize'
+			| 'packageUnit'
+			| 'shippingFee'
+			| 'marketplaceSourcingLocalOnly'
 		>
 	> & {
 		channelScrape?: Partial<Record<ChannelMarketplace, Partial<ChannelScrapeInfo>>>;
