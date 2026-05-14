@@ -29,6 +29,7 @@
 		buildIngredientSupplierCompares,
 		supplierWinCounts
 	} from '$lib/utils/supplierAnalytics';
+	import { formatPhp, formatPercent1, formatPercent1Signed } from '$lib/utils/numberFormat';
 
 	const ingredientMasters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
@@ -222,7 +223,7 @@
 	});
 
 	function fmt(n: number): string {
-		return `₱${n.toFixed(2)}`;
+		return formatPhp(n);
 	}
 
 	function fmtNumOrDash(n: number | null): string {
@@ -239,12 +240,12 @@
 
 	function snapshotGrossMarginPct(d: MonthlyFinancialSnapshot): string {
 		if (d.totalRevenue <= 0) return '—';
-		return `${((d.grossProfit / d.totalRevenue) * 100).toFixed(1)}%`;
+		return formatPercent1((d.grossProfit / d.totalRevenue) * 100);
 	}
 
 	function snapshotOpexPctOfRevenue(d: MonthlyFinancialSnapshot): string {
 		if (d.totalRevenue <= 0) return '—';
-		return `${((d.totalOpex / d.totalRevenue) * 100).toFixed(1)}%`;
+		return formatPercent1((d.totalOpex / d.totalRevenue) * 100);
 	}
 
 	function csvEscape(s: string): string {
@@ -443,7 +444,7 @@
 						class:text-emerald-700={summaryMomRev >= 0}
 						class:text-red-600={summaryMomRev < 0}
 					>
-						{summaryMomRev >= 0 ? '▲' : '▼'} {Math.abs(summaryMomRev).toFixed(1)}% vs prior month
+						{summaryMomRev >= 0 ? '▲' : '▼'} {formatPercent1(Math.abs(summaryMomRev))} vs prior month
 					</p>
 				{:else if kpiScope === 'yearly' && summaryYoyRev !== null}
 					<p
@@ -451,7 +452,7 @@
 						class:text-emerald-700={summaryYoyRev >= 0}
 						class:text-red-600={summaryYoyRev < 0}
 					>
-						{summaryYoyRev >= 0 ? '▲' : '▼'} {Math.abs(summaryYoyRev).toFixed(1)}% vs prior year
+						{summaryYoyRev >= 0 ? '▲' : '▼'} {formatPercent1(Math.abs(summaryYoyRev))} vs prior year
 					</p>
 				{/if}
 			</div>
@@ -484,7 +485,7 @@
 						class:text-emerald-700={summaryMomNet >= 0}
 						class:text-red-600={summaryMomNet < 0}
 					>
-						{summaryMomNet >= 0 ? '▲' : '▼'} {Math.abs(summaryMomNet).toFixed(1)}% vs prior month
+						{summaryMomNet >= 0 ? '▲' : '▼'} {formatPercent1(Math.abs(summaryMomNet))} vs prior month
 					</p>
 				{:else if kpiScope === 'yearly' && summaryYoyNet !== null}
 					<p
@@ -492,7 +493,7 @@
 						class:text-emerald-700={summaryYoyNet >= 0}
 						class:text-red-600={summaryYoyNet < 0}
 					>
-						{summaryYoyNet >= 0 ? '▲' : '▼'} {Math.abs(summaryYoyNet).toFixed(1)}% vs prior year
+						{summaryYoyNet >= 0 ? '▲' : '▼'} {formatPercent1(Math.abs(summaryYoyNet))} vs prior year
 					</p>
 				{/if}
 			</div>
@@ -506,7 +507,7 @@
 					class:text-red-700={summaryKpis.profitMarginPct < 0}
 					class:text-emerald-900={summaryKpis.profitMarginPct >= 0}
 				>
-					{summaryKpis.hasData ? `${summaryKpis.profitMarginPct.toFixed(1)}%` : '—'}
+					{summaryKpis.hasData ? formatPercent1(summaryKpis.profitMarginPct) : '—'}
 				</p>
 			</div>
 		</div>
@@ -534,9 +535,7 @@
 			<ul class="mt-4 space-y-3 text-sm leading-relaxed text-zinc-700">
 				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
 					{#if shopeeVsLazada !== null}
-						<strong class="text-zinc-900">Shopee</strong> averages <span class="font-semibold text-emerald-700"
-							>{shopeeVsLazada.toFixed(1)}%</span
-						>
+						<strong class="text-zinc-900">Shopee</strong> averages <span class="font-semibold text-emerald-700">{formatPercent1(shopeeVsLazada)}</span>
 						cheaper than <strong class="text-zinc-900">Lazada</strong> on comparable SKUs (where Shopee wins on price).
 					{:else}
 						Not enough Shopee vs Lazada pairs to compare averages yet.
@@ -544,9 +543,7 @@
 				</li>
 				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
 					{#if localVsLazada !== null}
-						<strong class="text-zinc-900">Local</strong> averages <span class="font-semibold text-emerald-700"
-							>{localVsLazada.toFixed(1)}%</span
-						>
+						<strong class="text-zinc-900">Local</strong> averages <span class="font-semibold text-emerald-700">{formatPercent1(localVsLazada)}</span>
 						cheaper than <strong class="text-zinc-900">Lazada</strong> where Local undercuts Lazada.
 					{:else}
 						Local vs Lazada comparison needs more SKU spread.
@@ -554,9 +551,7 @@
 				</li>
 				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
 					Average savings vs most expensive channel per SKU:
-					<strong class="tabular-nums text-zinc-900"
-						>{(compares.reduce((s, c) => s + c.savingsVsWorstPct, 0) / Math.max(1, compares.length)).toFixed(1)}%</strong
-					>.
+					<strong class="tabular-nums text-zinc-900">{formatPercent1(compares.reduce((s, c) => s + c.savingsVsWorstPct, 0) / Math.max(1, compares.length))}</strong>.
 				</li>
 			</ul>
 		</div>
@@ -583,7 +578,7 @@
 				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">
 					{#if costTrendPct !== null}
 						<span class:text-red-600={costTrendPct > 0} class:text-emerald-700={costTrendPct <= 0}>
-							{costTrendPct > 0 ? '+' : ''}{costTrendPct.toFixed(1)}%
+							{formatPercent1Signed(costTrendPct)}
 						</span>
 					{:else}
 						—
@@ -671,7 +666,7 @@
 							>
 								{fmt(r.netProfit)}
 							</td>
-							<td class="px-6 py-3.5 text-right tabular-nums">{r.profitMarginPct.toFixed(1)}%</td>
+							<td class="px-6 py-3.5 text-right tabular-nums">{formatPercent1(r.profitMarginPct)}</td>
 							<td class="px-6 py-3.5 text-zinc-700">{r.bestSupplier}</td>
 							<td class="px-6 py-3.5 text-xs text-zinc-500">{new Date(r.generatedAt).toLocaleString()}</td>
 							<td class="px-6 py-3.5 print:hidden">
@@ -767,7 +762,7 @@
 					</div>
 					<div class="flex justify-between gap-4">
 						<dt class="text-zinc-500">Net margin (saved)</dt>
-						<dd class="tabular-nums">{detail.profitMarginPct.toFixed(1)}%</dd>
+						<dd class="tabular-nums">{formatPercent1(detail.profitMarginPct)}</dd>
 					</div>
 					<div class="flex justify-between gap-4">
 						<dt class="text-zinc-500">OPEX ÷ revenue</dt>

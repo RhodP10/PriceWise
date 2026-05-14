@@ -6,6 +6,7 @@
 		MEASURE_UNIT_OPTIONS
 	} from '$lib/state/ingredientCatalog.svelte';
 	import { toBaseQuantity } from '$lib/utils/baseUnitCost';
+	import { formatDecimal, formatPhp } from '$lib/utils/numberFormat';
 
 	let {
 		open = $bindable(false)
@@ -19,6 +20,7 @@
 	let packageSize = $state(1);
 	let shippingFee = $state(0);
 	let packageUnit = $state<MeasureUnit>('kg');
+	let marketplaceSourcingLocalOnly = $state(false);
 
 	let backdrop: HTMLDivElement | undefined = $state();
 
@@ -34,6 +36,7 @@
 		packageSize = 1;
 		shippingFee = 0;
 		packageUnit = 'kg';
+		marketplaceSourcingLocalOnly = false;
 	}
 
 	function submit(e: Event): void {
@@ -46,6 +49,7 @@
 			packageSize,
 			packageUnit,
 			shippingFee,
+			marketplaceSourcingLocalOnly
 		});
 		reset();
 		open = false;
@@ -171,12 +175,26 @@
 					</div>
 				</div>
 
+				<label class="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2.5 text-sm">
+					<input
+						type="checkbox"
+						bind:checked={marketplaceSourcingLocalOnly}
+						class="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-orange-600 focus:ring-orange-500"
+					/>
+					<span>
+						<span class="font-semibold text-zinc-800">Local-only SKU</span>
+						<span class="mt-0.5 block text-xs leading-snug text-zinc-600">
+							Use for ice, water, or anything you never buy on Lazada/Shopee. Recipe marketplace COGS uses your catalog unit cost; no listing required.
+						</span>
+					</span>
+				</label>
+
 				<div class="rounded-xl bg-emerald-50 px-4 py-3 text-sm">
 					<div class="text-emerald-900">
-						Base quantity: <strong>{previewBase.quantity.toFixed(2)}</strong> {previewBase.unit}
+						Base quantity: <strong>{formatDecimal(previewBase.quantity)}</strong> {previewBase.unit}
 					</div>
 					<span class="text-emerald-800">Computed unit cost:</span>
-					<strong class="ml-2 tabular-nums text-emerald-950">₱{previewUnitCost.toFixed(4)}</strong>
+					<strong class="ml-2 tabular-nums text-emerald-950">{formatPhp(previewUnitCost)}</strong>
 					<span class="text-emerald-700"> / base unit</span>
 				</div>
 

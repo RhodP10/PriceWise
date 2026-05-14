@@ -8,6 +8,7 @@
 		showMarketplaceLandedPrice
 	} from '$lib/utils/channelCatalogDisplay';
 	import { formatRelativeTime, marketplaceStatusPresentation } from '$lib/utils/marketplaceCatalogUi';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	type Row = IngredientMasterDTO | OtherItemMasterDTO;
 
@@ -88,7 +89,7 @@
 						</td>
 						<td class="px-6 py-4 text-right font-medium tabular-nums text-zinc-900">
 							{#if showMarketplaceLandedPrice(row, channel) && pkg !== null}
-								₱{pkg.toFixed(2)}
+								{formatPhp(pkg)}
 							{:else}
 								<span class="text-zinc-300">—</span>
 							{/if}
@@ -100,7 +101,7 @@
 							{#if dims}{dims.packageUnit}{:else}<span class="text-zinc-300">—</span>{/if}
 						</td>
 						<td class="px-6 py-4 text-right tabular-nums text-zinc-500">
-							{#if dims}₱{dims.shippingFee.toFixed(2)}{:else}<span class="text-zinc-300">—</span>{/if}
+							{#if dims}{formatPhp(dims.shippingFee)}{:else}<span class="text-zinc-300">—</span>{/if}
 						</td>
 						<td class="px-6 py-4 text-right tabular-nums text-zinc-600">
 							{#if dims}{dims.baseQuantity}{:else}<span class="text-zinc-300">—</span>{/if}
@@ -111,7 +112,7 @@
 						<td class="px-6 py-4 text-right">
 							{#if showMarketplaceLandedPrice(row, channel) && chUnit !== null}
 								<div class="flex flex-col items-end">
-									<span class="font-bold text-emerald-700">₱{chUnit.toFixed(4)}</span>
+									<span class="font-bold text-emerald-700">{formatPhp(chUnit)}</span>
 									<span class="text-[10px] text-zinc-400">per {row.baseUnit}</span>
 								</div>
 							{:else}

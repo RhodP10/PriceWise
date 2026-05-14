@@ -62,6 +62,11 @@ export interface IngredientMasterDTO {
 	supplierChannelLanded?: ChannelLandedPrices;
 	/** Optional scrape workflow metadata per marketplace */
 	channelScrape?: Partial<Record<ChannelMarketplace, ChannelScrapeInfo>>;
+	/**
+	 * When true, Shopee/Lazada recipe COGS uses this row’s local catalog unit cost (no listing required).
+	 * Use for ice, utilities, or anything you never buy from marketplaces.
+	 */
+	marketplaceSourcingLocalOnly?: boolean;
 }
 
 export interface RecipeIngredientLineDTO {
@@ -87,6 +92,7 @@ export interface OtherItemMasterDTO {
 	unitCostHistory?: UnitCostHistoryEntry[];
 	supplierChannelLanded?: ChannelLandedPrices;
 	channelScrape?: Partial<Record<ChannelMarketplace, ChannelScrapeInfo>>;
+	marketplaceSourcingLocalOnly?: boolean;
 }
 
 /** Packaging lines reference Others catalog */
@@ -124,6 +130,7 @@ export interface IngredientMasterInput {
 	packageSize: number;
 	packageUnit: MeasureUnit;
 	shippingFee: number;
+	marketplaceSourcingLocalOnly?: boolean;
 }
 
 export type OtherItemMasterInput = IngredientMasterInput;

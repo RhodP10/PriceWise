@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatPhp } from '$lib/utils/numberFormat';
+
   const { item, onView } = $props<{
     item: {
       recipeName: string;
@@ -15,7 +17,7 @@
   </h1>
 
   <p class="text-xl font-bold mt-2">
-    ₱{item.suggestedPrice}
+    {formatPhp(item.suggestedPrice)}
   </p>
 
   <button

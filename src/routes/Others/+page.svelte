@@ -20,6 +20,7 @@
 	} from '$lib/utils/marketplaceJsonImport';
 	import type { ChannelMarketplace, MeasureUnit, OtherItemMasterDTO } from '$lib/types/recipe';
 	import { formatCatalogDateShort, lastCostLogIso } from '$lib/utils/catalogDisplay';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	let search = $state('');
 	let addModalOpen = $state(false);
@@ -62,7 +63,8 @@
 			packagePrice: draft.packagePrice,
 			packageSize: draft.packageSize,
 			packageUnit: draft.packageUnit as MeasureUnit | undefined,
-			shippingFee: draft.shippingFee
+			shippingFee: draft.shippingFee,
+			marketplaceSourcingLocalOnly: draft.marketplaceSourcingLocalOnly === true
 		});
 		editingId = null;
 		draft = {};
@@ -266,7 +268,7 @@
 		<div class="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
 			<div class="space-y-2">
 				<h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
-					Others <span class="text-sky-400">Local</span>
+					Others <span class="text-sky-400">Catalog</span>
 				</h1>
 				<p class="max-w-2xl text-lg text-zinc-400">
 					Manage packaging, disposable items, and other non-ingredient components of your recipes.
@@ -346,6 +348,18 @@
 								<tr class="bg-sky-50/30 transition-colors">
 									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
 										<input bind:value={draft.name} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-2 py-1.5 text-xs focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 sm:text-sm" />
+										<label class="mt-1.5 flex cursor-pointer items-start gap-2 text-[10px] text-zinc-600">
+											<input
+												type="checkbox"
+												checked={draft.marketplaceSourcingLocalOnly === true}
+												onchange={(e) => {
+													const el = e.currentTarget as HTMLInputElement;
+													draft = { ...draft, marketplaceSourcingLocalOnly: el.checked };
+												}}
+												class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-zinc-300"
+											/>
+											<span>Local-only (not from Lazada/Shopee)</span>
+										</label>
 									</td>
 									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
 										<input bind:value={draft.supplier} class="w-full min-w-0 rounded-lg border-zinc-200 bg-white px-2 py-1.5 text-xs focus:border-sky-500 focus:ring-2 focus:ring-sky-500/10 sm:text-sm" />
@@ -368,11 +382,13 @@
 									</td>
 									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
 										<span class="font-bold tabular-nums text-sky-600">
-											₱{computeUnitCost(
-												draft.packagePrice ?? 0,
-												draft.shippingFee ?? 0,
-												toBaseQuantity(draft.packageSize ?? 0, (draft.packageUnit ?? 'piece') as MeasureUnit).quantity
-											).toFixed(3)}
+											{formatPhp(
+												computeUnitCost(
+													draft.packagePrice ?? 0,
+													draft.shippingFee ?? 0,
+													toBaseQuantity(draft.packageSize ?? 0, (draft.packageUnit ?? 'piece') as MeasureUnit).quantity
+												)
+											)}
 										</span>
 									</td>
 									<td class="px-2 py-2 text-[10px] text-zinc-400 sm:px-3 sm:py-2.5">—</td>
@@ -386,25 +402,33 @@
 							{:else}
 								<tr class="group transition-colors hover:bg-zinc-50/50">
 									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
-										<div class="flex min-w-0 items-center gap-2">
-											<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-700 sm:h-8 sm:w-8">
-												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+										<div class="flex min-w-0 flex-col gap-0.5">
+											<div class="flex min-w-0 items-center gap-2">
+												<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-700 sm:h-8 sm:w-8">
+													<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+												</div>
+												<span class="truncate font-semibold text-zinc-900" title={row.name}>{row.name}</span>
 											</div>
-											<span class="truncate font-semibold text-zinc-900" title={row.name}>{row.name}</span>
+											{#if row.marketplaceSourcingLocalOnly}
+												<span
+													class="w-fit rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-800 ring-1 ring-violet-200 bg-violet-50"
+													title="Uses catalog unit cost in Shopee/Lazada recipe COGS"
+												>Local-only</span>
+											{/if}
 										</div>
 									</td>
 									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
 										<span class="inline-block max-w-full truncate rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200/50 sm:text-xs" title={row.supplier}>{row.supplier}</span>
 									</td>
-									<td class="px-2 py-2 text-right font-medium tabular-nums text-zinc-900 sm:px-3 sm:py-2.5">₱{row.packagePrice.toFixed(0)}</td>
+									<td class="px-2 py-2 text-right font-medium tabular-nums text-zinc-900 sm:px-3 sm:py-2.5">{formatPhp(row.packagePrice)}</td>
 									<td class="px-2 py-2 text-right tabular-nums text-zinc-600 sm:px-3 sm:py-2.5">{row.packageSize}</td>
 									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
 										<span class="text-[10px] font-bold uppercase text-zinc-400 sm:text-xs">{row.packageUnit}</span>
 									</td>
-									<td class="px-2 py-2 text-right tabular-nums text-zinc-500 sm:px-3 sm:py-2.5">{row.shippingFee === 0 ? '—' : `₱${row.shippingFee.toFixed(0)}`}</td>
+									<td class="px-2 py-2 text-right tabular-nums text-zinc-500 sm:px-3 sm:py-2.5">{row.shippingFee === 0 ? '—' : formatPhp(row.shippingFee)}</td>
 									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
 										<div class="flex flex-col items-end leading-tight">
-											<span class="font-bold tabular-nums text-sky-700">₱{row.unitCost.toFixed(3)}</span>
+											<span class="font-bold tabular-nums text-sky-700">{formatPhp(row.unitCost)}</span>
 											<span class="text-[9px] text-zinc-400">/{row.baseUnit}</span>
 										</div>
 									</td>

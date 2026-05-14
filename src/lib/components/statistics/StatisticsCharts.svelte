@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import Chart from 'chart.js/auto';
 	import type { MonthlySeriesPoint } from '$lib/utils/dashboardSeries';
+	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
 		series,
@@ -14,7 +15,7 @@
 	} = $props();
 
 	function fmtAvg(v: number | null): string {
-		return v === null ? '—' : `₱${v.toFixed(2)}`;
+		return v === null ? '—' : formatPhp(v);
 	}
 
 	let lineCanvas = $state<HTMLCanvasElement | null>(null);
@@ -75,7 +76,7 @@
 						ticks: {
 							callback: (tickValue) => {
 								const n = typeof tickValue === 'number' ? tickValue : Number(tickValue);
-								return `₱${Number.isFinite(n) ? n.toLocaleString() : tickValue}`;
+								return Number.isFinite(n) ? formatPhp(n) : String(tickValue);
 							}
 						}
 					}

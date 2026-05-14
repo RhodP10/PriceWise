@@ -3,6 +3,7 @@
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { computeSpreadsheetCosting, computeAutoSyncedRecipePricing, marginPercentAtPrice } from '$lib/utils/recipeCosting';
 	import { fade } from 'svelte/transition';
+	import { formatPhp, formatPercent1 } from '$lib/utils/numberFormat';
 
 	const LOW_MARGIN_PCT = 15;
 
@@ -83,7 +84,7 @@
 	const chartCostPct = $derived(sell > 0 ? Math.min(100, (cogs / sell) * 100) : 0);
 
 	function fmt(n: number): string {
-		return `₱${n.toFixed(2)}`;
+		return formatPhp(n);
 	}
 
 	const channels = [
@@ -91,12 +92,12 @@
 		{
 			key: 'shopee' as const,
 			label: 'Shopee',
-			hint: 'Shopee landed price on every line in this recipe'
+			hint: 'Shopee landed on each line that needs a listing, or local-only rows'
 		},
 		{
 			key: 'lazada' as const,
 			label: 'Lazada',
-			hint: 'Lazada landed price on every line in this recipe'
+			hint: 'Lazada landed on each line that needs a listing, or local-only rows'
 		}
 	];
 </script>
@@ -128,7 +129,7 @@
 				</p>
 			{/key}
 			<p class="text-center text-sm text-zinc-600">
-				<span class="font-semibold tabular-nums">{marginPct.toFixed(1)}%</span>
+				<span class="font-semibold tabular-nums">{formatPercent1(marginPct)}</span>
 				margin · {healthCopy.label}
 			</p>
 			{#if costingSettings.discountPct > 0}
@@ -269,8 +270,8 @@
 		<h3 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Channel pricing</h3>
 		<p class="mt-1 text-xs text-zinc-500">
 			<strong class="text-zinc-700">Local</strong> uses your catalog COGS and margin settings.
-			<strong class="text-zinc-700">Shopee</strong> and <strong class="text-zinc-700">Lazada</strong> list prices appear only after every ingredient and
-			“other” line in this recipe has that channel’s landed package price filled in the catalog.
+			<strong class="text-zinc-700">Shopee</strong> and <strong class="text-zinc-700">Lazada</strong> list prices unlock when every recipe line is priced for
+			that channel: landed package in the catalog (same base qty as the marketplace tab), or mark a SKU as local-only.
 		</p>
 		<ul class="mt-3 space-y-2">
 			{#each channels as row}
@@ -285,7 +286,7 @@
 						{#if row.key === 'local'}
 							<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(sell)}</p>
 							<p class="text-[11px] text-zinc-500">
-								<span class="tabular-nums">{marginPct.toFixed(1)}%</span> margin · +{fmt(profitBeforeDiscount)}
+								<span class="tabular-nums">{formatPercent1(marginPct)}</span> margin · +{fmt(profitBeforeDiscount)}
 							</p>
 						{:else if row.key === 'shopee'}
 							{#if autoPricing.shopee > 0 && autoPricing.cogsShopee !== null}
@@ -293,11 +294,11 @@
 								{@const profS = autoPricing.shopee - autoPricing.cogsShopee}
 								<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(autoPricing.shopee)}</p>
 								<p class="text-[11px] text-zinc-500">
-									<span class="tabular-nums">{mpS.toFixed(1)}%</span> margin · +{fmt(profS)}
+									<span class="tabular-nums">{formatPercent1(mpS)}</span> margin · +{fmt(profS)}
 								</p>
 							{:else}
 								<p class="text-base font-semibold text-zinc-400">—</p>
-								<p class="text-[11px] text-zinc-400">Set Shopee landed on all lines</p>
+								<p class="text-[11px] text-zinc-400">Complete Shopee pricing for all lines</p>
 							{/if}
 						{:else}
 							{#if autoPricing.lazada > 0 && autoPricing.cogsLazada !== null}
@@ -305,11 +306,11 @@
 								{@const profL = autoPricing.lazada - autoPricing.cogsLazada}
 								<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(autoPricing.lazada)}</p>
 								<p class="text-[11px] text-zinc-500">
-									<span class="tabular-nums">{mpL.toFixed(1)}%</span> margin · +{fmt(profL)}
+									<span class="tabular-nums">{formatPercent1(mpL)}</span> margin · +{fmt(profL)}
 								</p>
 							{:else}
 								<p class="text-base font-semibold text-zinc-400">—</p>
-								<p class="text-[11px] text-zinc-400">Set Lazada landed on all lines</p>
+								<p class="text-[11px] text-zinc-400">Complete Lazada pricing for all lines</p>
 							{/if}
 						{/if}
 					</div>
@@ -325,14 +326,14 @@
 			<span aria-hidden="true">{healthCopy.dot}</span>
 			<span class="font-semibold text-zinc-800">{healthCopy.label}</span>
 			<span class="text-zinc-400">·</span>
-			<span class="tabular-nums text-zinc-600">{marginPct.toFixed(1)}% margin</span>
+			<span class="tabular-nums text-zinc-600">{formatPercent1(marginPct)} margin</span>
 		</div>
 		<p class="mt-1 text-xs text-zinc-500">{healthCopy.sub}</p>
 
 		<div class="mt-4">
 			<div class="mb-1 flex justify-between text-[11px] font-medium text-zinc-500">
 				<span>Profit meter</span>
-				<span class="tabular-nums">{marginPct.toFixed(1)}%</span>
+				<span class="tabular-nums">{formatPercent1(marginPct)}</span>
 			</div>
 			<div class="h-2.5 overflow-hidden rounded-full bg-zinc-100">
 				<div
