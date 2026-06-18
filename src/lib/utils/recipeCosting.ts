@@ -5,6 +5,7 @@ import type {
 	RecipePricingDTO
 } from '$lib/types/recipe';
 import { channelUnitCostFromLanded } from '$lib/utils/channelCatalogDisplay';
+import { catalogUnitCost } from '$lib/utils/stockLots';
 import { convertQuantity } from '$lib/utils/unitConvert';
 
 type MarketplaceChannel = 'lazada' | 'shopee';
@@ -15,7 +16,7 @@ function unitCostForMarketplaceLine(
 	ch: MarketplaceChannel
 ): number | null {
 	if (m.marketplaceSourcingLocalOnly === true) {
-		if (typeof m.unitCost === 'number' && m.unitCost > 0) return m.unitCost;
+		if (typeof m.unitCost === 'number' && m.unitCost > 0) return catalogUnitCost(m);
 		return null;
 	}
 	return channelUnitCostFromLanded(m, ch);
@@ -32,7 +33,7 @@ export function recipeIngredientSubtotal(recipe: RecipeDTO, masters: IngredientM
 		if (!m) continue;
 		const qtyInMasterUnit = convertQuantity(line.quantity, line.unit, m.baseUnit);
 		if (qtyInMasterUnit === null) continue;
-		sum += qtyInMasterUnit * m.unitCost;
+		sum += qtyInMasterUnit * catalogUnitCost(m);
 	}
 	return sum;
 }
@@ -44,7 +45,7 @@ export function recipeOtherSubtotal(recipe: RecipeDTO, otherMasters: OtherItemMa
 		if (!m) continue;
 		const qtyInMasterUnit = convertQuantity(line.quantity, line.unit, m.baseUnit);
 		if (qtyInMasterUnit === null) continue;
-		sum += qtyInMasterUnit * m.unitCost;
+		sum += qtyInMasterUnit * catalogUnitCost(m);
 	}
 	return sum;
 }

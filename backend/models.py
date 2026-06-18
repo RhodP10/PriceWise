@@ -13,6 +13,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="cafe_owner", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     recipes = relationship("Recipe", back_populates="user", cascade="all, delete-orphan")
@@ -25,6 +26,58 @@ class User(Base):
     workspace = relationship(
         "UserWorkspace", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+    local_store = relationship(
+        "LocalStore", back_populates="owner", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class LocalStore(Base):
+    """Public storefront profile for a local supplier account."""
+
+    __tablename__ = "local_stores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    store_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    address: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    contact_number: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    owner = relationship("User", back_populates="local_store")
+    products = relationship(
+        "LocalStoreProduct", back_populates="store", cascade="all, delete-orphan"
+    )
+
+
+class LocalStoreProduct(Base):
+    """Supplier-listed SKU with today's local market price."""
+
+    __tablename__ = "local_store_products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("local_stores.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(16), default="ingredient", nullable=False)
+    package_price: Mapped[float] = mapped_column(Float, nullable=False)
+    shipping_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    package_size: Mapped[float] = mapped_column(Float, nullable=False)
+    package_unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    base_quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    base_unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit_cost: Mapped[float] = mapped_column(Float, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    image_url: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    is_available: Mapped[bool] = mapped_column(default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    store = relationship("LocalStore", back_populates="products")
 
 
 class UserWorkspace(Base):

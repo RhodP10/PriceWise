@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { API_BASE } from '$lib/api/apiBase';
-	import { saveToken, fetchMe } from '$lib/state/auth.svelte';
+	import { saveToken, fetchMe, homePathForUser } from '$lib/state/auth.svelte';
 
 	let email = $state('');
 	let password = $state('');
@@ -28,7 +28,7 @@
 			const data = await res.json();
 			saveToken(data.access_token);
 			await fetchMe();
-			await goto('/recipes');
+			await goto(homePathForUser());
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Login failed';
 			showAccountError = true;
@@ -156,7 +156,11 @@
 			<p class="mt-10 text-center text-sm text-zinc-600">
 				Not a member?
 				<a href="/register" class="font-bold text-emerald-600 hover:text-emerald-500 underline underline-offset-4">
-					Create an account
+					Cafe owner account
+				</a>
+				·
+				<a href="/register/supplier" class="font-bold text-amber-700 hover:underline underline-offset-4">
+					Local supplier
 				</a>
 			</p>
 		</div>

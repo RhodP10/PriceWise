@@ -25,7 +25,7 @@ export interface MonthlyFinancialSnapshot {
 export type SupplierChannel = 'lazada' | 'shopee' | 'local';
 
 export interface ChannelLandedPrices {
-	lazada: number;
-	shopee: number;
-	local: number;
+	lazada?: number;
+	shopee?: number;
+	local?: number;
 }

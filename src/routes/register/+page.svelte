@@ -46,7 +46,7 @@
 			const res = await fetch(`${API_BASE}/auth/register`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: email.trim(), password })
+				body: JSON.stringify({ email: email.trim(), password, role: 'cafe_owner' })
 			});
 			if (!res.ok) {
 				const msg = await res.text();
@@ -213,6 +213,10 @@
 				Already have an account?
 				<a href="/login" class="font-bold text-emerald-600 hover:text-emerald-500 underline underline-offset-4">
 					Sign in instead
+				</a>
+				·
+				<a href="/register/supplier" class="font-bold text-amber-700 hover:underline underline-offset-4">
+					Register as local supplier
 				</a>
 			</p>
 		</div>

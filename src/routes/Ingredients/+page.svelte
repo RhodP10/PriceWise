@@ -1,15 +1,23 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import AddIngredientMasterModal from '$lib/components/recipes/AddIngredientMasterModal.svelte';
 	import ChannelScrapeHelpModal from '$lib/components/catalog/ChannelScrapeHelpModal.svelte';
 	import MarketplaceCatalogTable from '$lib/components/catalog/MarketplaceCatalogTable.svelte';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
+	import CatalogViewToggle, { type CatalogViewMode } from '$lib/components/catalog/CatalogViewToggle.svelte';
+	import CatalogLocalCards from '$lib/components/catalog/CatalogLocalCards.svelte';
+	import CatalogStockModal from '$lib/components/catalog/CatalogStockModal.svelte';
+	import CatalogDetailModal from '$lib/components/catalog/CatalogDetailModal.svelte';
 	import { computeUnitCost, toBaseQuantity } from '$lib/utils/baseUnitCost';
 	import { scrapeMarketplaceFromBrowser } from '$lib/api/marketplaceScrapeClient';
 	import {
+		splitIngredientCatalogByPrice,
 		deleteIngredientMaster,
 		getMaster,
 		ingredientCatalog,
 		updateIngredientMaster,
+		receiveIngredientStock,
+		useIngredientStock,
 		MEASURE_UNIT_OPTIONS
 	} from '$lib/state/ingredientCatalog.svelte';
 	import {
@@ -19,8 +27,11 @@
 		type MarketplaceListingSubmitResult
 	} from '$lib/utils/marketplaceJsonImport';
 	import type { ChannelMarketplace, IngredientMasterDTO, MeasureUnit } from '$lib/types/recipe';
-	import { formatCatalogDateShort, lastCostLogIso } from '$lib/utils/catalogDisplay';
 	import { formatPhp } from '$lib/utils/numberFormat';
+
+	onMount(() => {
+		splitIngredientCatalogByPrice();
+	});
 
 	let search = $state('');
 	let addModalOpen = $state(false);
@@ -38,6 +49,62 @@
 	let scrapeChannel = $state<ChannelMarketplace>('lazada');
 
 	let deleteTarget = $state<{ id: string; name: string } | null>(null);
+
+	let localViewMode = $state<CatalogViewMode>('table');
+	let stockModalOpen = $state(false);
+	let stockModalMode = $state<'receive' | 'use'>('receive');
+	let stockRow = $state<IngredientMasterDTO | null>(null);
+	let detailOpen = $state(false);
+	let detailRow = $state<IngredientMasterDTO | null>(null);
+
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		const v = localStorage.getItem('pricewise_ing_view');
+		if (v === 'cards' || v === 'table') localViewMode = v;
+	});
+
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		localStorage.setItem('pricewise_ing_view', localViewMode);
+	});
+
+	function openStockModal(row: IngredientMasterDTO, mode: 'receive' | 'use' = 'receive'): void {
+		stockRow = row;
+		stockModalMode = mode;
+		stockModalOpen = true;
+	}
+
+	function openDetail(row: IngredientMasterDTO): void {
+		detailRow = row;
+		detailOpen = true;
+	}
+
+	function closeDetail(): void {
+		detailOpen = false;
+		detailRow = null;
+	}
+
+	function handleCardAddStock(row: IngredientMasterDTO, ev: MouseEvent): void {
+		ev.stopPropagation();
+		openStockModal(row, 'receive');
+	}
+
+	function handleReceiveStock(packagesQty: number, purchasedOn: string): void {
+		if (!stockRow) return;
+		receiveIngredientStock(stockRow.id, {
+			packagePrice: stockRow.packagePrice,
+			shippingFee: stockRow.shippingFee,
+			packageSize: stockRow.packageSize,
+			packageUnit: stockRow.packageUnit,
+			packagesQty,
+			purchasedOn
+		});
+	}
+
+	function handleUseStock(packagesQty: number): void {
+		if (!stockRow) return;
+		useIngredientStock(stockRow.id, packagesQty);
+	}
 
 	const filtered = $derived(
 		ingredientCatalog.items.filter((row) => {
@@ -323,6 +390,30 @@
 	</div>
 
 	{#if activeTab === 'local'}
+		<div class="flex flex-wrap items-center justify-between gap-3">
+			<p class="text-sm text-zinc-500">
+				Same name + same price merges stock · different prices = separate batches · click for logs
+			</p>
+			<CatalogViewToggle mode={localViewMode} onChange={(m) => (localViewMode = m)} />
+		</div>
+
+		{#if localViewMode === 'cards'}
+			{#if ingredientCatalog.items.length === 0}
+				<div class="glass flex flex-col items-center justify-center rounded-3xl py-20 text-center shadow-xl">
+					<h3 class="text-lg font-bold text-zinc-900">No ingredients yet</h3>
+					<button onclick={() => (addModalOpen = true)} class="mt-6 rounded-xl bg-zinc-900 px-6 py-2.5 text-sm font-bold text-white">Add Your First Ingredient</button>
+				</div>
+			{:else if filtered.length === 0}
+				<p class="py-12 text-center text-sm text-zinc-500">No matches for “{search.trim()}”.</p>
+			{:else}
+				<CatalogLocalCards
+					rows={filtered}
+					accent="emerald"
+					onSelect={(row) => openDetail(row as IngredientMasterDTO)}
+					onAddStock={(row, ev) => handleCardAddStock(row as IngredientMasterDTO, ev)}
+				/>
+			{/if}
+		{:else}
 		<div class="glass overflow-hidden rounded-3xl shadow-xl transition-all">
 			<div class="w-full overflow-hidden">
 				<table class="w-full table-fixed border-collapse text-left text-xs sm:text-sm">
@@ -334,11 +425,7 @@
 							<th class="w-[7%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Size</th>
 							<th class="w-[7%] px-2 py-2.5 sm:px-3 sm:py-3">Unit</th>
 							<th class="w-[8%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Ship</th>
-							<th class="w-[11%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Cost</th>
-							<th class="w-[15%] px-2 py-2.5 sm:px-3 sm:py-3">
-								<span class="block normal-case text-[9px] font-semibold leading-tight text-zinc-400">Smart Pricing</span>
-								Added / log
-							</th>
+							<th class="w-[13%] px-2 py-2.5 text-right sm:px-3 sm:py-3">Cost</th>
 							<th class="w-[12%] px-2 py-2.5 text-right sm:px-3 sm:py-3"><span class="sr-only">Actions</span></th>
 						</tr>
 					</thead>
@@ -400,7 +487,10 @@
 									</td>
 								</tr>
 							{:else}
-								<tr class="group transition-colors hover:bg-zinc-50/50">
+								<tr
+									class="group cursor-pointer transition-colors hover:bg-emerald-50/40"
+									onclick={() => openDetail(row)}
+								>
 									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
 										<div class="flex min-w-0 flex-col gap-0.5">
 											<div class="flex min-w-0 items-center gap-2">
@@ -432,18 +522,12 @@
 											<span class="text-[9px] text-zinc-400">/{row.baseUnit}</span>
 										</div>
 									</td>
-									<td class="px-2 py-2 sm:px-3 sm:py-2.5">
-										<div class="flex flex-col gap-0.5 text-[10px] leading-tight tabular-nums text-zinc-600 sm:text-xs">
-											<div><span class="text-zinc-400">+</span> {formatCatalogDateShort(row.addedAt)}</div>
-											<div><span class="text-zinc-400">●</span> {formatCatalogDateShort(lastCostLogIso(row))}</div>
-										</div>
-									</td>
 									<td class="px-2 py-2 text-right sm:px-3 sm:py-2.5">
 										<div class="flex justify-end gap-0.5">
 											<button
 												type="button"
 												class="rounded-md p-1.5 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 sm:p-2"
-												onclick={() => startEdit(row)}
+												onclick={(e) => { e.stopPropagation(); startEdit(row); }}
 												title="Edit ingredient"
 											>
 												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
@@ -451,7 +535,7 @@
 											<button
 												type="button"
 												class="rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 sm:p-2"
-												onclick={() => requestDelete(row)}
+												onclick={(e) => { e.stopPropagation(); requestDelete(row); }}
 												title="Delete ingredient"
 											>
 												<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 sm:h-4 sm:w-4"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
@@ -486,6 +570,7 @@
 				</div>
 			{/if}
 		</div>
+		{/if}
 	{:else}
 		{#if filtered.length === 0}
 			<p class="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
@@ -527,4 +612,37 @@
 		: ''}
 	onClose={() => (deleteTarget = null)}
 	onConfirm={executeDelete}
+/>
+
+<CatalogDetailModal
+	open={detailOpen}
+	row={detailRow}
+	itemLabel="Ingredient"
+	accent="emerald"
+	onClose={closeDetail}
+	onAddStock={() => {
+		if (detailRow) openStockModal(detailRow, 'receive');
+		closeDetail();
+	}}
+	onDeductStock={() => {
+		if (detailRow) openStockModal(detailRow, 'use');
+		closeDetail();
+	}}
+	onEdit={() => {
+		if (detailRow) startEdit(detailRow);
+		closeDetail();
+	}}
+	onDelete={() => {
+		if (detailRow) requestDelete(detailRow);
+		closeDetail();
+	}}
+/>
+
+<CatalogStockModal
+	open={stockModalOpen}
+	mode={stockModalMode}
+	row={stockRow}
+	onClose={() => (stockModalOpen = false)}
+	onReceive={handleReceiveStock}
+	onUse={handleUseStock}
 />

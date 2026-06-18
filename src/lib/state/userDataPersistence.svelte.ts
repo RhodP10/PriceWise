@@ -10,6 +10,8 @@ import {
 	resetMonthlySummaryStore
 } from '$lib/state/monthlySummaryStore.svelte';
 import { resetSummarySales, summarySales } from '$lib/state/summarySales.svelte';
+import { replaceSalesTransactions, resetSalesStore, salesStore } from '$lib/state/salesStore.svelte';
+import type { SaleTransaction } from '$lib/types/sales';
 
 /** Must be reactive: +layout `$effect` gates on this before reading recipe/catalog state; otherwise saves never subscribe after bootstrap. */
 let workspaceSaveEnabled = $state(false);
@@ -38,6 +40,7 @@ export function serializeWorkspacePayload(): WorkspaceClientPayload {
 		others: cloneJson(otherCatalog.items),
 		opex: cloneJson(opexStore.lines),
 		summarySales: cloneJson(summarySales.ordersPerMonthByRecipeId),
+		salesTransactions: cloneJson(salesStore.transactions),
 		costingSettings: {
 			vatRegistered: costingSettings.vatRegistered,
 			vatPct: costingSettings.vatPct,
@@ -54,6 +57,7 @@ export function applyEmptyWorkspace(): void {
 	replaceOtherCatalogItems([]);
 	replaceOpexLines([]);
 	resetSummarySales();
+	resetSalesStore();
 	replaceCostingSettings(null);
 }
 
@@ -67,6 +71,11 @@ export function applyWorkspacePayload(data: Partial<WorkspaceClientPayload> | nu
 		summarySales.ordersPerMonthByRecipeId = cloneJson(d.summarySales);
 	} else {
 		resetSummarySales();
+	}
+	if (Array.isArray(d.salesTransactions)) {
+		replaceSalesTransactions(cloneJson(d.salesTransactions) as SaleTransaction[]);
+	} else {
+		resetSalesStore();
 	}
 	replaceCostingSettings(
 		d.costingSettings && typeof d.costingSettings === 'object' ? cloneJson(d.costingSettings) : null
@@ -138,6 +147,7 @@ export function clearInMemoryUserData(): void {
 	replaceOtherCatalogItems([]);
 	replaceOpexLines([]);
 	resetSummarySales();
+	resetSalesStore();
 	replaceCostingSettings(null);
 	resetMonthlySummaryStore();
 }

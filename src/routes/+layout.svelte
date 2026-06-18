@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { authState, clearAuth, fetchMe, hydrateAuthFromStorage } from '$lib/state/auth.svelte';
+	import { authState, clearAuth, fetchMe, homePathForUser, hydrateAuthFromStorage, isCafeOwner, isLocalSupplier } from '$lib/state/auth.svelte';
 	import {
 		bootstrapUserWorkspace,
 		cancelWorkspacePersistDebounce,
@@ -17,6 +17,7 @@
 	import { opexStore } from '$lib/state/opexStore.svelte';
 	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 	import { recipeStore } from '$lib/state/recipes.svelte';
+	import { salesStore } from '$lib/state/salesStore.svelte';
 	import { summarySales } from '$lib/state/summarySales.svelte';
 	import { replaceMonthlySummariesFromApi } from '$lib/state/monthlySummaryStore.svelte';
 	import { hydrateUserPrefs, userPrefs } from '$lib/state/userPrefs.svelte';
@@ -27,18 +28,25 @@
 	/** Only hydrate from the server when the logged-in user id changes — not on every `fetchMe()` profile refresh (same id), which would overwrite in-memory stores before persist runs. */
 	let hydratedUserId = $state<number | null>(null);
 
-	const links = [
+	const cafeLinks = [
 		{ href: '/recipes', label: 'Recipes' },
 		{ href: '/Ingredients', label: 'Ingredients' },
 		{ href: '/Others', label: 'Others' },
+		{ href: '/local-store', label: 'Local Store' },
 		{ href: '/Opex', label: 'OPEX' },
-		{ href: '/Summary', label: 'Summary' },
+		{ href: '/business', label: 'Business Hub' },
 		{ href: '/Statistics', label: 'Statistics' },
 		{ href: '/smart-pricing', label: 'Smart Pricing' }
 	];
 
+	const links = $derived(cafeLinks);
+
+	const isSupplierRoute = $derived($page.url.pathname.startsWith('/supplier'));
+
 	const showAppHeader = $derived(
-		!['/', '/login', '/register'].includes($page.url.pathname)
+		!['/', '/login', '/register'].includes($page.url.pathname) &&
+			!$page.url.pathname.startsWith('/register/supplier') &&
+			!isSupplierRoute
 	);
 
 	$effect(() => {
@@ -59,10 +67,33 @@
 
 	$effect(() => {
 		if (!browser) return;
-		const publicPaths = ['/', '/login', '/register'];
+		const publicPaths = ['/', '/login', '/register', '/register/supplier'];
 		const path = $page.url.pathname;
-		if (!publicPaths.includes(path) && !authState.token) {
+		if (publicPaths.includes(path) || path.startsWith('/register/supplier')) return;
+		if (!authState.token) {
 			void goto('/login');
+			return;
+		}
+		if (!authState.user) return;
+		if (isSupplierRoute && isCafeOwner()) {
+			void goto('/recipes');
+			return;
+		}
+		const cafeOnlyPrefixes = [
+			'/recipes',
+			'/Ingredients',
+			'/Others',
+			'/local-store',
+			'/Opex',
+			'/business',
+			'/Summary',
+			'/sales',
+			'/Statistics',
+			'/smart-pricing',
+			'/settings'
+		];
+		if (isLocalSupplier() && cafeOnlyPrefixes.some((p) => path === p || path.startsWith(p + '/'))) {
+			void goto('/supplier');
 		}
 	});
 
@@ -73,6 +104,7 @@
 			hydratedUserId = null;
 			return;
 		}
+		if (!isCafeOwner()) return;
 		if (hydratedUserId === id) return;
 		hydratedUserId = id;
 		const tok = authState.token;
@@ -86,6 +118,7 @@
 	$effect(() => {
 		if (!browser) return;
 		if (!authState.user?.id) return;
+		if (!isCafeOwner()) return;
 		if (!isWorkspaceSaveEnabled()) return;
 		const tok = authState.token;
 		if (!tok) return;
@@ -94,6 +127,7 @@
 		otherCatalog.items;
 		opexStore.lines;
 		summarySales.ordersPerMonthByRecipeId;
+		salesStore.transactions;
 		costingSettings.vatRegistered;
 		costingSettings.vatPct;
 		costingSettings.batchSize;
@@ -130,7 +164,9 @@
 </script>
 
 <div class="min-h-screen bg-zinc-100 text-zinc-900 antialiased">
-	<RecipePricingSync />
+	{#if isCafeOwner()}
+		<RecipePricingSync />
+	{/if}
 	{#if showAppHeader}
 		<header
 			class="sticky top-0 z-40 border-b border-emerald-200 bg-emerald-50/95 backdrop-blur-md supports-backdrop-filter:bg-emerald-50/80"
@@ -184,7 +220,11 @@
 		</header>
 	{/if}
 
-	<main class="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+	{#if isSupplierRoute}
 		{@render children()}
-	</main>
+	{:else}
+		<main class="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+			{@render children()}
+		</main>
+	{/if}
 </div>

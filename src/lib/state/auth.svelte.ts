@@ -1,6 +1,11 @@
 import { API_BASE } from '$lib/api/apiBase';
+import type { UserRole } from '$lib/types/localStore';
 
-type AuthUser = { id: number; email: string } | null;
+export type AuthUser = {
+	id: number;
+	email: string;
+	role: UserRole;
+} | null;
 
 export const authState = $state({
 	token: '',
@@ -34,10 +39,31 @@ export async function fetchMe(): Promise<void> {
 		clearAuth();
 		return;
 	}
-	authState.user = await res.json();
+	const raw = (await res.json()) as { id: number; email: string; role?: string };
+	authState.user = {
+		id: raw.id,
+		email: raw.email,
+		role: raw.role === 'local_supplier' ? 'local_supplier' : 'cafe_owner'
+	};
 }
 
 export function isAuthenticated(): boolean {
 	return Boolean(authState.token && authState.user);
 }
 
+export function isCafeOwner(): boolean {
+	return authState.user?.role === 'cafe_owner';
+}
+
+export function isLocalSupplier(): boolean {
+	return authState.user?.role === 'local_supplier';
+}
+
+export function homePathForRole(role: UserRole): string {
+	return role === 'local_supplier' ? '/supplier' : '/recipes';
+}
+
+export function homePathForUser(): string {
+	if (!authState.user) return '/login';
+	return homePathForRole(authState.user.role);
+}

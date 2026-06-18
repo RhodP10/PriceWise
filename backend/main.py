@@ -13,9 +13,11 @@ from pydantic import BaseModel
 from marketplace_browser_scrape import scrape_lazada_sync, scrape_shopee_sync
 from auth import create_access_token, hash_password, verify_password
 from database import Base, engine
-from deps import get_current_user, get_db
+from deps import get_current_user, get_db, require_role
 from models import (
     Ingredient,
+    LocalStore,
+    LocalStoreProduct,
     MonthlyFinancialSnapshot,
     Opex,
     OtherCost,
@@ -28,6 +30,12 @@ from models import (
 from schemas import (
     IngredientCreateIn,
     IngredientOut,
+    LocalStoreDetailOut,
+    LocalStoreOut,
+    LocalStoreProductCreateIn,
+    LocalStoreProductOut,
+    LocalStoreProductUpdateIn,
+    LocalStoreUpdateIn,
     MonthlySnapshotCreateIn,
     MonthlySnapshotOut,
     OpexCreateIn,
@@ -112,6 +120,58 @@ def _migrate_monthly_snapshots_allow_duplicates() -> None:
 
 _migrate_monthly_snapshots_allow_duplicates()
 
+
+def _migrate_user_role_column() -> None:
+    """Add users.role for cafe_owner vs local_supplier (SQLite + PostgreSQL)."""
+    with engine.begin() as conn:
+        dialect = conn.dialect.name
+        if dialect == "postgresql":
+            conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(32) "
+                    "NOT NULL DEFAULT 'cafe_owner'"
+                )
+            )
+        elif dialect == "sqlite":
+            cols = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            names = {row[1] for row in cols}
+            if "role" not in names:
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN role VARCHAR(32) "
+                        "NOT NULL DEFAULT 'cafe_owner'"
+                    )
+                )
+
+
+_migrate_user_role_column()
+
+
+def _migrate_local_store_product_image_url() -> None:
+    """Add optional product image URL for local store listings."""
+    with engine.begin() as conn:
+        dialect = conn.dialect.name
+        if dialect == "postgresql":
+            conn.execute(
+                text(
+                    "ALTER TABLE local_store_products ADD COLUMN IF NOT EXISTS "
+                    "image_url VARCHAR(2048) NOT NULL DEFAULT ''"
+                )
+            )
+        elif dialect == "sqlite":
+            cols = conn.execute(text("PRAGMA table_info(local_store_products)")).fetchall()
+            names = {row[1] for row in cols}
+            if "image_url" not in names:
+                conn.execute(
+                    text(
+                        "ALTER TABLE local_store_products ADD COLUMN image_url "
+                        "VARCHAR(2048) NOT NULL DEFAULT ''"
+                    )
+                )
+
+
+_migrate_local_store_product_image_url()
+
 # Bearer tokens are sent via Authorization header (not cookies), so allow_origins=["*"]
 # avoids brittle CORS when Origin is localhost vs 127.0.0.1 vs LAN IP during dev.
 app.add_middleware(
@@ -129,6 +189,35 @@ def _ingredient_out(obj: Ingredient) -> IngredientOut:
 
 def _other_out(obj: OtherCost) -> OtherCostOut:
     return OtherCostOut.model_validate(obj)
+
+
+def _store_out(store: LocalStore, product_count: int | None = None) -> LocalStoreOut:
+    count = product_count
+    if count is None:
+        count = len(store.products) if store.products is not None else 0
+    return LocalStoreOut(
+        id=store.id,
+        owner_user_id=store.owner_user_id,
+        store_name=store.store_name,
+        description=store.description,
+        address=store.address,
+        contact_number=store.contact_number,
+        is_active=store.is_active,
+        created_at=store.created_at,
+        updated_at=store.updated_at,
+        product_count=count,
+    )
+
+
+def _product_out(obj: LocalStoreProduct) -> LocalStoreProductOut:
+    return LocalStoreProductOut.model_validate(obj)
+
+
+def _supplier_store(db: Session, user: User) -> LocalStore:
+    store = db.scalar(select(LocalStore).where(LocalStore.owner_user_id == user.id))
+    if not store:
+        raise HTTPException(status_code=404, detail="Supplier store not found")
+    return store
 
 
 @app.get("/")
@@ -172,8 +261,23 @@ def register(payload: UserRegisterIn, db: Session = Depends(get_db)):
     existing = db.scalar(select(User).where(User.email == payload.email.lower().strip()))
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(email=payload.email.lower().strip(), password_hash=hash_password(payload.password))
+    user = User(
+        email=payload.email.lower().strip(),
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+    )
     db.add(user)
+    db.flush()
+    if payload.role == "local_supplier":
+        db.add(
+            LocalStore(
+                owner_user_id=user.id,
+                store_name=payload.store_name.strip(),
+                description=payload.store_description.strip(),
+                address=payload.store_address.strip(),
+                contact_number=payload.contact_number.strip(),
+            )
+        )
     db.commit()
     db.refresh(user)
     return user
@@ -191,6 +295,172 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @app.get("/auth/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+# --- Local store marketplace (public browse + supplier manage) ---
+
+
+@app.get("/local-stores", response_model=list[LocalStoreOut])
+def list_local_stores(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ = current_user
+    rows = db.scalars(
+        select(LocalStore)
+        .where(LocalStore.is_active.is_(True))
+        .order_by(LocalStore.store_name.asc())
+    ).all()
+    out: list[LocalStoreOut] = []
+    for store in rows:
+        count = db.scalar(
+            select(func.count(LocalStoreProduct.id)).where(
+                LocalStoreProduct.store_id == store.id,
+                LocalStoreProduct.is_available.is_(True),
+            )
+        )
+        out.append(_store_out(store, int(count or 0)))
+    return out
+
+
+@app.get("/local-stores/{store_id}", response_model=LocalStoreDetailOut)
+def get_local_store(
+    store_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    store = db.scalar(select(LocalStore).where(LocalStore.id == store_id, LocalStore.is_active.is_(True)))
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    products = db.scalars(
+        select(LocalStoreProduct)
+        .where(LocalStoreProduct.store_id == store.id, LocalStoreProduct.is_available.is_(True))
+        .order_by(LocalStoreProduct.name.asc())
+    ).all()
+    base = _store_out(store, len(products))
+    return LocalStoreDetailOut(**base.model_dump(), products=[_product_out(p) for p in products])
+
+
+@app.get("/supplier/store", response_model=LocalStoreDetailOut)
+def get_supplier_store(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("local_supplier")),
+):
+    store = _supplier_store(db, current_user)
+    products = db.scalars(
+        select(LocalStoreProduct)
+        .where(LocalStoreProduct.store_id == store.id)
+        .order_by(LocalStoreProduct.updated_at.desc())
+    ).all()
+    base = _store_out(store, len(products))
+    return LocalStoreDetailOut(**base.model_dump(), products=[_product_out(p) for p in products])
+
+
+@app.put("/supplier/store", response_model=LocalStoreOut)
+def update_supplier_store(
+    payload: LocalStoreUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("local_supplier")),
+):
+    store = _supplier_store(db, current_user)
+    if payload.store_name is not None:
+        store.store_name = payload.store_name.strip()
+    if payload.description is not None:
+        store.description = payload.description.strip()
+    if payload.address is not None:
+        store.address = payload.address.strip()
+    if payload.contact_number is not None:
+        store.contact_number = payload.contact_number.strip()
+    if payload.is_active is not None:
+        store.is_active = payload.is_active
+    store.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(store)
+    count = db.scalar(
+        select(func.count(LocalStoreProduct.id)).where(LocalStoreProduct.store_id == store.id)
+    )
+    return _store_out(store, int(count or 0))
+
+
+@app.post("/supplier/products", response_model=LocalStoreProductOut)
+def create_supplier_product(
+    payload: LocalStoreProductCreateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("local_supplier")),
+):
+    store = _supplier_store(db, current_user)
+    now = datetime.utcnow()
+    row = LocalStoreProduct(
+        store_id=store.id,
+        name=payload.name.strip(),
+        category=payload.category,
+        package_price=payload.package_price,
+        shipping_fee=payload.shipping_fee,
+        package_size=payload.package_size,
+        package_unit=payload.package_unit,
+        base_quantity=payload.base_quantity,
+        base_unit=payload.base_unit,
+        unit_cost=payload.unit_cost,
+        notes=payload.notes.strip(),
+        image_url=(payload.image_url or "").strip(),
+        is_available=payload.is_available,
+        updated_at=now,
+    )
+    db.add(row)
+    store.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return _product_out(row)
+
+
+@app.patch("/supplier/products/{product_id}", response_model=LocalStoreProductOut)
+def update_supplier_product(
+    product_id: int,
+    payload: LocalStoreProductUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("local_supplier")),
+):
+    store = _supplier_store(db, current_user)
+    row = db.scalar(
+        select(LocalStoreProduct).where(
+            LocalStoreProduct.id == product_id,
+            LocalStoreProduct.store_id == store.id,
+        )
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Product not found")
+    data = payload.model_dump(exclude_unset=True)
+    for key, val in data.items():
+        if key == "name" and isinstance(val, str):
+            setattr(row, key, val.strip())
+        elif key == "notes" and isinstance(val, str):
+            setattr(row, key, val.strip())
+        else:
+            setattr(row, key, val)
+    row.updated_at = datetime.utcnow()
+    store.updated_at = row.updated_at
+    db.commit()
+    db.refresh(row)
+    return _product_out(row)
+
+
+@app.delete("/supplier/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_supplier_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("local_supplier")),
+):
+    store = _supplier_store(db, current_user)
+    row = db.scalar(
+        select(LocalStoreProduct).where(
+            LocalStoreProduct.id == product_id,
+            LocalStoreProduct.store_id == store.id,
+        )
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.delete(row)
+    store.updated_at = datetime.utcnow()
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch("/auth/me/password")

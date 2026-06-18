@@ -9,6 +9,7 @@ export type WorkspaceClientPayload = {
 	others: OtherItemMasterDTO[];
 	opex: OpexLineDTO[];
 	summarySales: Record<string, number>;
+	salesTransactions: import('$lib/types/sales').SaleTransaction[];
 	costingSettings: {
 		vatRegistered: boolean;
 		vatPct: number;

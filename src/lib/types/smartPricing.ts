@@ -22,9 +22,27 @@ export type SmartPricingAnalyzePayload = {
 		suggestedLocal: number;
 		currentShopee: number;
 		currentLazada: number;
+		ingredientCogs?: number;
+		packagingCogs?: number;
 	}[];
 	summarySales: Record<string, number>;
 	targetMarginPct: number;
+	monthlyOpex?: number;
+	historicalSnapshots?: {
+		yearMonth: string;
+		totalRevenue: number;
+		grossProfit: number;
+		totalOpex: number;
+		netProfit: number;
+	}[];
+	actualSales?: {
+		recipeId: string;
+		recipeName: string;
+		quantity: number;
+		totalAmount: number;
+		profit: number;
+		soldAt: string;
+	}[];
 };
 
 export type SmartPricingAnalysisResult = {
@@ -42,6 +60,7 @@ export type SmartPricingAnalysisResult = {
 		name: string;
 		level: string;
 		ordersNextMonthHint?: number;
+		actualQtyTotal?: number;
 	}[];
 	sellingPriceRecommendations: {
 		recipeId: string;
@@ -67,4 +86,54 @@ export type SmartPricingAnalysisResult = {
 	alerts: { type: string; text: string }[];
 	modelNotes: string;
 	echo?: { ingredientCount: number; recipeCount: number };
+	salesForecasts?: {
+		recipeId: string;
+		name: string;
+		actualMonthlyAvg: number;
+		projectedNextMonth: number;
+		confidence: number;
+		source: string;
+	}[];
+	businessForecasts?: {
+		metric: string;
+		label: string;
+		current: number;
+		projectedNextMonth: number;
+		confidence: number;
+	}[];
+	actualVsProjectedDemand?: {
+		recipeId: string;
+		name: string;
+		actualQty: number;
+		projectedQty: number;
+		variancePct: number | null;
+	}[];
+	costBreakdown?: {
+		recipeId: string;
+		name: string;
+		ingredientCost: number;
+		packagingCost: number;
+		utilityCost: number;
+		laborCost: number;
+		opexAllocation: number;
+		totalCost: number;
+	}[];
+	regressionModels?: {
+		recipeId: string;
+		name: string;
+		linearPrice: number;
+		multipleRegressionPrice: number;
+		polynomialPrice: number;
+		recommendedPrice: number;
+		expectedMarginPct: number;
+		confidence: number;
+		revenueImpact: number;
+	}[];
+	mlInsights?: {
+		pricedTooLow: { recipeId: string; name: string; current: number; suggested: number }[];
+		pricedTooHigh: { recipeId: string; name: string; current: number; suggested: number }[];
+		mostProfitable: { recipeId: string; name: string; profitPerOrder: number }[];
+		growthPotential: { recipeId: string; name: string; reason: string }[];
+		needsAdjustment: { recipeId: string; name: string; reason: string }[];
+	};
 };

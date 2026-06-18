@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import StatisticsBiDashboard from '$lib/components/statistics/StatisticsBiDashboard.svelte';
 	import StatisticsCharts from '$lib/components/statistics/StatisticsCharts.svelte';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
@@ -329,8 +330,7 @@
 					Statistics <span class="text-violet-400">Analytics</span>
 				</h1>
 				<p class="text-lg text-zinc-400">
-					Financial KPIs from saved Summary snapshots (with month vs year roll-ups), supplier channel mix on
-					ingredients, and full save history — including multiple saves per month (use Generated to tell them apart).
+					Business Intelligence dashboard — executive KPIs, sales analytics, product & inventory performance, supplier insights, and profitability trends. Record sales in Business Hub; close months to archive snapshots below.
 				</p>
 			</div>
 			<div class="flex flex-wrap gap-2 print:hidden">
@@ -511,6 +511,10 @@
 				</p>
 			</div>
 		</div>
+	</div>
+
+	<div class="glass overflow-hidden rounded-3xl p-4 shadow-xl sm:p-6">
+		<StatisticsBiDashboard />
 	</div>
 
 	{#if browser}
@@ -695,7 +699,7 @@
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<p class="text-sm font-medium text-zinc-700">No saved rows match.</p>
 					<p class="mt-1 text-sm text-zinc-500">
-						Use <strong class="text-zinc-800">Save Summary to Statistics</strong> on the Summary page to add a month.
+						Use <strong class="text-zinc-800">Month Close</strong> in Business Hub to add a month.
 					</p>
 				</div>
 			{/if}

@@ -10,6 +10,17 @@ import type {
 import type { ChannelLandedPrices } from '$lib/types/statistics';
 import { mergeChannelLanded } from '$lib/utils/marketplaceJsonImport';
 import { computeUnitCost, toBaseQuantity } from '$lib/utils/baseUnitCost';
+import { catalogBatchKey } from '$lib/utils/catalogBatch';
+import type { StockTransaction } from '$lib/types/recipe';
+import {
+	buildInitialLotsFromMaster,
+	consumeStockFifo,
+	ensurePurchaseLots,
+	lotMergeKey,
+	receiveStock,
+	totalPackagesRemaining,
+	type ReceiveStockInput
+} from '$lib/utils/stockLots';
 
 export const otherCatalog = $state({
 	items: structuredClone(mockOtherMasters) as OtherItemMasterDTO[]
@@ -60,6 +71,29 @@ function trimHistory(h: UnitCostHistoryEntry[]): UnitCostHistoryEntry[] {
 }
 
 export function addOtherMaster(input: OtherItemMasterInput): OtherItemMasterDTO {
+	const existing = findOtherByBatchKey({
+		name: input.name,
+		supplier: input.supplier,
+		packagePrice: input.packagePrice,
+		shippingFee: input.shippingFee,
+		packageSize: input.packageSize,
+		packageUnit: input.packageUnit
+	});
+	if (existing) {
+		const merged = receiveOtherStock(existing.id, {
+			packagePrice: input.packagePrice,
+			shippingFee: input.shippingFee,
+			packageSize: input.packageSize,
+			packageUnit: input.packageUnit,
+			packagesQty: 1
+		})!;
+		if (input.marketplaceSourcingLocalOnly) {
+			updateOtherMaster(merged.id, { marketplaceSourcingLocalOnly: true });
+			return getOtherMaster(merged.id)!;
+		}
+		return merged;
+	}
+
 	const base = toBaseQuantity(input.packageSize, input.packageUnit);
 	const unitCost = computeUnitCost(input.packagePrice, input.shippingFee, base.quantity);
 	const now = new Date().toISOString();
@@ -76,6 +110,17 @@ export function addOtherMaster(input: OtherItemMasterInput): OtherItemMasterDTO 
 		unitCost,
 		addedAt: now,
 		unitCostHistory: [{ recordedAt: now, unitCost }],
+		purchaseLots: buildInitialLotsFromMaster(
+			{
+				packagePrice: input.packagePrice,
+				shippingFee: input.shippingFee,
+				packageSize: input.packageSize,
+				packageUnit: input.packageUnit,
+				baseQuantity: base.quantity,
+				unitCost
+			},
+			1
+		),
 		marketplaceSourcingLocalOnly: input.marketplaceSourcingLocalOnly === true
 	};
 	otherCatalog.items = [...otherCatalog.items, row];
@@ -157,4 +202,220 @@ export function resetOtherCatalog(): void {
 
 export function replaceOtherCatalogItems(next: OtherItemMasterDTO[]): void {
 	otherCatalog.items = structuredClone(next);
+}
+
+function findOtherByBatchKey(row: {
+	name: string;
+	supplier: string;
+	packagePrice: number;
+	shippingFee: number;
+	packageSize: number;
+	packageUnit: MeasureUnit;
+}): OtherItemMasterDTO | undefined {
+	const key = catalogBatchKey(row);
+	return otherCatalog.items.find((i) => catalogBatchKey(i) === key);
+}
+
+function newOtherTxnId(): string {
+	if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+	return `otxn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function appendOtherStockTransaction(
+	m: OtherItemMasterDTO,
+	txn: Omit<StockTransaction, 'id' | 'stockAfter'>,
+	stockAfter: number
+): StockTransaction[] {
+	const next = [...(m.stockTransactions ?? []), { ...txn, id: newOtherTxnId(), stockAfter }];
+	return next.length > 120 ? next.slice(next.length - 120) : next;
+}
+
+function applyLotsToOther(
+	m: OtherItemMasterDTO,
+	lots: OtherItemMasterDTO['purchaseLots'],
+	txn?: Omit<StockTransaction, 'id' | 'stockAfter'>
+): OtherItemMasterDTO {
+	const stockAfter = totalPackagesRemaining(lots);
+	const stockTransactions = txn
+		? appendOtherStockTransaction(m, txn, stockAfter)
+		: (m.stockTransactions ?? []);
+	return { ...m, purchaseLots: lots, stockTransactions };
+}
+
+export function receiveOtherStock(
+	id: string,
+	input: ReceiveStockInput,
+	notes = 'Stock received'
+): OtherItemMasterDTO | undefined {
+	const m = getOtherMaster(id);
+	if (!m) return undefined;
+	const target = findOtherByBatchKey({
+		name: m.name,
+		supplier: m.supplier,
+		packagePrice: input.packagePrice,
+		shippingFee: input.shippingFee,
+		packageSize: input.packageSize,
+		packageUnit: input.packageUnit
+	});
+	if (target && target.id !== id) return receiveOtherStock(target.id, input, notes);
+	const lots = receiveStock(m.purchaseLots ?? [], input);
+	const now = new Date().toISOString();
+	const next = applyLotsToOther(m, lots, {
+		type: 'receive',
+		quantity: input.packagesQty,
+		createdAt: now,
+		purchasedOn: input.purchasedOn ?? now.slice(0, 10),
+		notes
+	});
+	otherCatalog.items = otherCatalog.items.map((row) => (row.id === id ? next : row));
+	return next;
+}
+
+export function useOtherStock(
+	id: string,
+	packagesQty: number,
+	notes = 'Stock used'
+): { master: OtherItemMasterDTO; consumed: number } | undefined {
+	const m = getOtherMaster(id);
+	if (!m || packagesQty <= 0) return undefined;
+	const baseLots = m.purchaseLots?.length ? m.purchaseLots : buildInitialLotsFromMaster(m, 1);
+	const { lots, consumed } = consumeStockFifo(baseLots, packagesQty);
+	if (consumed <= 1e-9) return undefined;
+	const now = new Date().toISOString();
+	const next = applyLotsToOther(m, lots, {
+		type: 'deduct',
+		quantity: consumed,
+		createdAt: now,
+		notes
+	});
+	otherCatalog.items = otherCatalog.items.map((row) => (row.id === id ? next : row));
+	return { master: next, consumed };
+}
+
+/** Import a local supplier listing — merges stock when name + supplier already exist. */
+export function importOtherFromLocalStore(
+	product: import('$lib/types/localStore').LocalStoreProductDTO,
+	storeName: string,
+	storeId: number
+): OtherItemMasterDTO {
+	const now = new Date().toISOString();
+	const landed = Math.round((product.packagePrice + product.shippingFee) * 100) / 100;
+	const existing = findOtherByBatchKey({
+		name: product.name,
+		supplier: storeName,
+		packagePrice: product.packagePrice,
+		shippingFee: product.shippingFee,
+		packageSize: product.packageSize,
+		packageUnit: product.packageUnit
+	});
+
+	if (existing) {
+		const updated = receiveOtherStock(existing.id, {
+			packagePrice: product.packagePrice,
+			shippingFee: product.shippingFee,
+			packageSize: product.packageSize,
+			packageUnit: product.packageUnit,
+			packagesQty: 1
+		})!;
+		const withSource: OtherItemMasterDTO = {
+			...updated,
+			supplierChannelLanded: { ...updated.supplierChannelLanded, local: landed },
+			localStoreSource: {
+				storeId,
+				storeName: storeName.trim(),
+				productId: product.id,
+				importedAt: now
+			}
+		};
+		otherCatalog.items = otherCatalog.items.map((r) => (r.id === existing.id ? withSource : r));
+		return withSource;
+	}
+
+	const row: OtherItemMasterDTO = {
+		id: newId(),
+		name: product.name.trim(),
+		supplier: storeName.trim(),
+		packagePrice: product.packagePrice,
+		packageSize: product.packageSize,
+		packageUnit: product.packageUnit,
+		shippingFee: product.shippingFee,
+		baseQuantity: product.baseQuantity,
+		baseUnit: product.baseUnit,
+		unitCost: product.unitCost,
+		addedAt: now,
+		unitCostHistory: [{ recordedAt: now, unitCost: product.unitCost }],
+		purchaseLots: buildInitialLotsFromMaster(
+			{
+				packagePrice: product.packagePrice,
+				shippingFee: product.shippingFee,
+				packageSize: product.packageSize,
+				packageUnit: product.packageUnit,
+				baseQuantity: product.baseQuantity,
+				unitCost: product.unitCost
+			},
+			1
+		),
+		supplierChannelLanded: { local: landed },
+		localStoreSource: {
+			storeId,
+			storeName: storeName.trim(),
+			productId: product.id,
+			importedAt: now
+		}
+	};
+	otherCatalog.items = [...otherCatalog.items, row];
+	return row;
+}
+
+/** Split rows that mixed multiple price tiers into separate batch cards. */
+export function splitOtherCatalogByPrice(): void {
+	const result: OtherItemMasterDTO[] = [];
+	for (const item of otherCatalog.items) {
+		const lots = ensurePurchaseLots(item);
+		const groups = new Map<string, typeof lots>();
+		for (const lot of lots) {
+			const k = lotMergeKey(lot);
+			const list = groups.get(k) ?? [];
+			list.push(lot);
+			groups.set(k, list);
+		}
+		if (groups.size <= 1) {
+			result.push({ ...item, purchaseLots: lots });
+			continue;
+		}
+		let first = true;
+		for (const groupLots of groups.values()) {
+			const lead = groupLots[0]!;
+			if (first) {
+				result.push({
+					...item,
+					packagePrice: lead.packagePrice,
+					shippingFee: lead.shippingFee,
+					packageSize: lead.packageSize,
+					packageUnit: lead.packageUnit,
+					baseQuantity: lead.baseQuantityPerPackage,
+					unitCost: lead.unitCost,
+					purchaseLots: groupLots
+				});
+				first = false;
+			} else {
+				const base = toBaseQuantity(lead.packageSize, lead.packageUnit);
+				result.push({
+					...item,
+					id: newId(),
+					packagePrice: lead.packagePrice,
+					shippingFee: lead.shippingFee,
+					packageSize: lead.packageSize,
+					packageUnit: lead.packageUnit,
+					baseQuantity: lead.baseQuantityPerPackage,
+					baseUnit: base.unit,
+					unitCost: lead.unitCost,
+					purchaseLots: groupLots,
+					addedAt: lead.recordedAt,
+					stockTransactions: []
+				});
+			}
+		}
+	}
+	otherCatalog.items = result;
 }

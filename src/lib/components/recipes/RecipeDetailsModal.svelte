@@ -18,6 +18,7 @@
 	} from '$lib/state/recipes.svelte';
 	import { convertQuantity } from '$lib/utils/unitConvert';
 	import { recipeIngredientSubtotal, recipeOtherSubtotal } from '$lib/utils/recipeCosting';
+	import { batchesForProductName, defaultBatchForProduct, isBatchOutOfStock, productNameKey, recipeBatchOptionLabel, uniqueProductNames } from '$lib/utils/catalogBatch';
 	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
@@ -36,7 +37,9 @@
 	/** Single add form: switch type with segmented control */
 	let addMode = $state<'ingredient' | 'other'>('ingredient');
 	let addIngredientMasterId = $state('');
+	let addIngredientProductName = $state('');
 	let addOtherMasterId = $state('');
+	let addOtherProductName = $state('');
 	let addQty = $state(1);
 	let addUnit = $state<MeasureUnit>('g');
 
@@ -72,6 +75,11 @@
 			...recipe.otherLines.map((line) => ({ kind: 'other' as const, line }))
 		];
 	});
+
+	const uniqueIngredientNames = $derived(uniqueProductNames(masters));
+	const uniqueOtherNames = $derived(uniqueProductNames(otherMasters));
+	const addIngredientBatches = $derived(batchesForProductName(masters, addIngredientProductName));
+	const addOtherBatches = $derived(batchesForProductName(otherMasters, addOtherProductName));
 
 	const ingSub = $derived(recipe ? recipeIngredientSubtotal(recipe, masters) : 0);
 	const othSub = $derived(recipe ? recipeOtherSubtotal(recipe, otherMasters) : 0);
@@ -132,28 +140,77 @@
 	});
 
 	$effect(() => {
-		const firstIng = masters[0]?.id ?? '';
-		if (!addIngredientMasterId && firstIng) addIngredientMasterId = firstIng;
-		if (masters.length && !masters.some((m) => m.id === addIngredientMasterId)) {
-			addIngredientMasterId = firstIng;
+		if (!uniqueIngredientNames.length) {
+			addIngredientProductName = '';
+			addIngredientMasterId = '';
+			return;
+		}
+		if (
+			!addIngredientProductName ||
+			!uniqueIngredientNames.some((n) => productNameKey(n) === productNameKey(addIngredientProductName))
+		) {
+			addIngredientProductName = uniqueIngredientNames[0]!;
 		}
 	});
 
 	$effect(() => {
-		const firstOth = otherMasters[0]?.id ?? '';
-		if (!addOtherMasterId && firstOth) addOtherMasterId = firstOth;
-		if (otherMasters.length && !otherMasters.some((m) => m.id === addOtherMasterId)) {
-			addOtherMasterId = firstOth;
+		const name = addIngredientProductName;
+		if (!name) return;
+		const batches = batchesForProductName(masters, name);
+		if (!batches.some((b) => b.id === addIngredientMasterId)) {
+			const batch = defaultBatchForProduct(masters, name);
+			if (batch) addIngredientMasterId = batch.id;
 		}
 	});
+
+	$effect(() => {
+		if (!uniqueOtherNames.length) {
+			addOtherProductName = '';
+			addOtherMasterId = '';
+			return;
+		}
+		if (
+			!addOtherProductName ||
+			!uniqueOtherNames.some((n) => productNameKey(n) === productNameKey(addOtherProductName))
+		) {
+			addOtherProductName = uniqueOtherNames[0]!;
+		}
+	});
+
+	$effect(() => {
+		const name = addOtherProductName;
+		if (!name) return;
+		const batches = batchesForProductName(otherMasters, name);
+		if (!batches.some((b) => b.id === addOtherMasterId)) {
+			const batch = defaultBatchForProduct(otherMasters, name);
+			if (batch) addOtherMasterId = batch.id;
+		}
+	});
+
+	function onAddIngredientProductChange(name: string): void {
+		addIngredientProductName = name;
+		const batch = defaultBatchForProduct(masters, name);
+		addIngredientMasterId = batch?.id ?? '';
+	}
+
+	function onAddOtherProductChange(name: string): void {
+		addOtherProductName = name;
+		const batch = defaultBatchForProduct(otherMasters, name);
+		addOtherMasterId = batch?.id ?? '';
+	}
 
 	function fmt(n: number): string {
 		return formatPhp(n);
 	}
 
-	function catalogPickLabel(name: string, supplier: string): string {
-		const s = supplier.trim();
-		return s ? `${name} · ${s}` : name;
+	function ingredientBatchesForLine(current: (typeof masters)[number] | undefined): typeof masters {
+		if (!current) return [];
+		return batchesForProductName(masters, current.name);
+	}
+
+	function otherBatchesForLine(current: (typeof otherMasters)[number] | undefined): typeof otherMasters {
+		if (!current) return [];
+		return batchesForProductName(otherMasters, current.name);
 	}
 
 	function ingLineCost(line: RecipeDTO['ingredientLines'][number]): number {
@@ -219,8 +276,20 @@
 		addQty = 1;
 	}
 
-	const canAddIngredient = $derived(masters.length > 0 && Boolean(addIngredientMasterId));
-	const canAddOther = $derived(otherMasters.length > 0 && Boolean(addOtherMasterId));
+	const selectedAddIngredient = $derived(masters.find((x) => x.id === addIngredientMasterId));
+	const selectedAddOther = $derived(otherMasters.find((x) => x.id === addOtherMasterId));
+	const canAddIngredient = $derived(
+		masters.length > 0 &&
+			Boolean(addIngredientMasterId) &&
+			Boolean(selectedAddIngredient) &&
+			!isBatchOutOfStock(selectedAddIngredient!)
+	);
+	const canAddOther = $derived(
+		otherMasters.length > 0 &&
+			Boolean(addOtherMasterId) &&
+			Boolean(selectedAddOther) &&
+			!isBatchOutOfStock(selectedAddOther!)
+	);
 	const canSubmitAdd = $derived(addMode === 'ingredient' ? canAddIngredient : canAddOther);
 
 	type AddPreview =
@@ -487,7 +556,13 @@
 											<td class="min-w-[10rem] max-w-[min(100vw,22rem)] px-3 py-2.5 align-top sm:min-w-[12rem] sm:max-w-none">
 												{#if m}
 													<span class="font-medium break-words text-zinc-900">{m.name}</span>
-													<span class="mt-0.5 block break-words text-[10px] text-zinc-500">{m.supplier}</span>
+													<span class="mt-0.5 inline-flex flex-wrap items-center gap-1">
+														<span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">{formatPhp(m.packagePrice)}</span>
+														<span class="text-[10px] text-zinc-500">{m.supplier}</span>
+														{#if isBatchOutOfStock(m)}
+															<span class="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700">Out of stock</span>
+														{/if}
+													</span>
 												{:else}
 													<span class="text-amber-700">Missing item</span>
 												{/if}
@@ -499,8 +574,10 @@
 															ingredientMasterId: (e.currentTarget as HTMLSelectElement).value
 														})}
 												>
-													{#each masters as cat}
-														<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
+													{#each ingredientBatchesForLine(m) as cat (cat.id)}
+														<option value={cat.id} disabled={isBatchOutOfStock(cat) && cat.id !== line.ingredientMasterId}>
+															{recipeBatchOptionLabel(cat)}
+														</option>
 													{/each}
 												</select>
 											</td>
@@ -559,7 +636,13 @@
 											<td class="min-w-[10rem] max-w-[min(100vw,22rem)] px-3 py-2.5 align-top sm:min-w-[12rem] sm:max-w-none">
 												{#if om}
 													<span class="font-medium break-words text-zinc-900">{om.name}</span>
-													<span class="mt-0.5 block break-words text-[10px] text-zinc-500">{om.supplier}</span>
+													<span class="mt-0.5 inline-flex flex-wrap items-center gap-1">
+														<span class="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-800">{formatPhp(om.packagePrice)}</span>
+														<span class="text-[10px] text-zinc-500">{om.supplier}</span>
+														{#if isBatchOutOfStock(om)}
+															<span class="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700">Out of stock</span>
+														{/if}
+													</span>
 												{:else}
 													<span class="text-amber-700">Missing item</span>
 												{/if}
@@ -571,8 +654,10 @@
 															otherMasterId: (e.currentTarget as HTMLSelectElement).value
 														})}
 												>
-													{#each otherMasters as cat}
-														<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
+													{#each otherBatchesForLine(om) as cat (cat.id)}
+														<option value={cat.id} disabled={isBatchOutOfStock(cat) && cat.id !== line.otherMasterId}>
+															{recipeBatchOptionLabel(cat)}
+														</option>
 													{/each}
 												</select>
 											</td>
@@ -752,36 +837,64 @@
 							aria-label="Add line: catalog, quantity, unit, add"
 						>
 							{#if addMode === 'ingredient'}
-								<label class="sr-only" for="add-ing-select">Catalog ingredient</label>
+								<label class="sr-only" for="add-ing-product">Product</label>
+								<select
+									id="add-ing-product"
+									value={addIngredientProductName}
+									disabled={uniqueIngredientNames.length === 0}
+									class="min-h-[44px] min-w-[min(100%,9rem)] shrink-0 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
+									onchange={(e) => onAddIngredientProductChange((e.currentTarget as HTMLSelectElement).value)}
+								>
+									{#each uniqueIngredientNames as name (name)}
+										<option value={name}>{name}</option>
+									{/each}
+								</select>
+								<label class="sr-only" for="add-ing-select">Batch</label>
 								<select
 									id="add-ing-select"
 									bind:value={addIngredientMasterId}
-									disabled={masters.length === 0}
+									disabled={addIngredientBatches.length === 0}
 									class="min-h-[44px] min-w-[min(100%,11rem)] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
-									title="Pick catalog ingredient"
+									title="Pick price batch for this product"
 								>
-									{#if masters.length === 0}
-										<option value="">— No items yet —</option>
+									{#if addIngredientBatches.length === 0}
+										<option value="">— No batches —</option>
 									{:else}
-										{#each masters as cat}
-											<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
+										{#each addIngredientBatches as cat (cat.id)}
+											<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
+												{recipeBatchOptionLabel(cat)}
+											</option>
 										{/each}
 									{/if}
 								</select>
 							{:else}
-								<label class="sr-only" for="add-oth-select">Catalog other</label>
+								<label class="sr-only" for="add-oth-product">Product</label>
+								<select
+									id="add-oth-product"
+									value={addOtherProductName}
+									disabled={uniqueOtherNames.length === 0}
+									class="min-h-[44px] min-w-[min(100%,9rem)] shrink-0 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
+									onchange={(e) => onAddOtherProductChange((e.currentTarget as HTMLSelectElement).value)}
+								>
+									{#each uniqueOtherNames as name (name)}
+										<option value={name}>{name}</option>
+									{/each}
+								</select>
+								<label class="sr-only" for="add-oth-select">Batch</label>
 								<select
 									id="add-oth-select"
 									bind:value={addOtherMasterId}
-									disabled={otherMasters.length === 0}
+									disabled={addOtherBatches.length === 0}
 									class="min-h-[44px] min-w-[min(100%,11rem)] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
-									title="Pick catalog other"
+									title="Pick price batch for this item"
 								>
-									{#if otherMasters.length === 0}
-										<option value="">— No items yet —</option>
+									{#if addOtherBatches.length === 0}
+										<option value="">— No batches —</option>
 									{:else}
-										{#each otherMasters as cat}
-											<option value={cat.id}>{catalogPickLabel(cat.name, cat.supplier)}</option>
+										{#each addOtherBatches as cat (cat.id)}
+											<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
+												{recipeBatchOptionLabel(cat)}
+											</option>
 										{/each}
 									{/if}
 								</select>

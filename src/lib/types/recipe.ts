@@ -1,4 +1,5 @@
 import type { ChannelLandedPrices } from '$lib/types/statistics';
+import type { LocalStoreCatalogSource } from '$lib/types/localStore';
 
 /** Lazada / Shopee marketplace rows in catalogs */
 export type ChannelMarketplace = 'lazada' | 'shopee';
@@ -42,6 +43,35 @@ export interface UnitCostHistoryEntry {
 	unitCost: number;
 }
 
+export interface StockPurchaseLot {
+	id: string;
+	/** YYYY-MM-DD */
+	purchasedOn: string;
+	packagePrice: number;
+	shippingFee: number;
+	packageSize: number;
+	packageUnit: MeasureUnit;
+	baseQuantityPerPackage: number;
+	unitCost: number;
+	/** Total packages received in this lot */
+	packagesQty: number;
+	/** Packages still on hand */
+	packagesRemaining: number;
+	recordedAt: string;
+}
+
+/** Stock movement log for a price-tier inventory batch. */
+export interface StockTransaction {
+	id: string;
+	type: 'receive' | 'deduct' | 'adjust';
+	/** Packages added or removed (always positive) */
+	quantity: number;
+	stockAfter: number;
+	createdAt: string;
+	purchasedOn?: string;
+	notes?: string;
+}
+
 /** Master ingredient purchased in bulk — unit cost from package + shipping */
 export interface IngredientMasterDTO {
 	id: string;
@@ -58,6 +88,10 @@ export interface IngredientMasterDTO {
 	addedAt?: string;
 	/** Time series of local unit costs for forecasting */
 	unitCostHistory?: UnitCostHistoryEntry[];
+	/** Same-price purchase layers (same day merges qty) */
+	purchaseLots?: StockPurchaseLot[];
+	/** Stock movement history for this batch */
+	stockTransactions?: StockTransaction[];
 	/** Landed ₱ for same package from each channel (Statistics supplier comparison) */
 	supplierChannelLanded?: ChannelLandedPrices;
 	/** Optional scrape workflow metadata per marketplace */
@@ -67,6 +101,8 @@ export interface IngredientMasterDTO {
 	 * Use for ice, utilities, or anything you never buy from marketplaces.
 	 */
 	marketplaceSourcingLocalOnly?: boolean;
+	/** Set when imported from a local supplier listing on the Local Store page */
+	localStoreSource?: LocalStoreCatalogSource;
 }
 
 export interface RecipeIngredientLineDTO {
@@ -90,9 +126,15 @@ export interface OtherItemMasterDTO {
 	unitCost: number;
 	addedAt?: string;
 	unitCostHistory?: UnitCostHistoryEntry[];
+	/** Same-price purchase layers (same day merges qty) */
+	purchaseLots?: StockPurchaseLot[];
+	/** Stock movement history for this batch */
+	stockTransactions?: StockTransaction[];
 	supplierChannelLanded?: ChannelLandedPrices;
 	channelScrape?: Partial<Record<ChannelMarketplace, ChannelScrapeInfo>>;
 	marketplaceSourcingLocalOnly?: boolean;
+	/** Set when imported from a local supplier listing on the Local Store page */
+	localStoreSource?: LocalStoreCatalogSource;
 }
 
 /** Packaging lines reference Others catalog */
@@ -131,6 +173,8 @@ export interface IngredientMasterInput {
 	packageUnit: MeasureUnit;
 	shippingFee: number;
 	marketplaceSourcingLocalOnly?: boolean;
+	/** Set when imported from a local supplier listing on the Local Store page */
+	localStoreSource?: LocalStoreCatalogSource;
 }
 
 export type OtherItemMasterInput = IngredientMasterInput;

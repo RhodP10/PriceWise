@@ -9,6 +9,7 @@ from typing import Any
 
 try:
     from sklearn.linear_model import LinearRegression
+    from sklearn.preprocessing import PolynomialFeatures
 
     _HAS_SK = True
 except ImportError:  # pragma: no cover
@@ -55,6 +56,19 @@ def _forecast_unit_cost(history: list[dict[str, Any]], current: float) -> tuple[
     x_days = [(p[0] - t0) / 86400.0 for p in points]
     horizon = 30.0
 
+    if _HAS_SK and len(points) >= 4:
+        x_arr = [[xd] for xd in x_days]
+        poly = PolynomialFeatures(degree=2, include_bias=False)
+        x_poly = poly.fit_transform(x_arr)
+        reg = LinearRegression()
+        reg.fit(x_poly, y)
+        last_day = x_days[-1]
+        pred = float(reg.predict(poly.transform([[last_day + horizon]]))[0])
+        pred = max(pred, 1e-9)
+        r2 = max(0.0, min(1.0, float(reg.score(x_poly, y))))
+        conf = min(0.94, 0.25 + 0.1 * (len(points) - 1) + 0.42 * r2)
+        return pred, conf, trend_pct
+
     if _HAS_SK and len(points) >= 2:
         x_arr = [[xd] for xd in x_days]
         reg = LinearRegression()
@@ -70,6 +84,76 @@ def _forecast_unit_cost(history: list[dict[str, Any]], current: float) -> tuple[
     pred = max(y[-1] + slope * horizon, 1e-9)
     conf = min(0.68, 0.18 + 0.12 * len(points))
     return pred, conf, trend_pct
+
+
+def _forecast_series(values: list[float]) -> tuple[float, float]:
+    """Linear forecast one step ahead from a numeric series."""
+    n = len(values)
+    if n == 0:
+        return 0.0, 0.1
+    if n == 1:
+        return values[0], 0.25
+    x = list(range(n))
+    if _HAS_SK:
+        reg = LinearRegression()
+        reg.fit([[i] for i in x], values)
+        pred = float(reg.predict([[n]])[0])
+        r2 = max(0.0, min(1.0, float(reg.score([[i] for i in x], values))))
+        conf = min(0.9, 0.3 + 0.15 * n + 0.35 * r2)
+        return max(pred, 0.0), conf
+    slope = (values[-1] - values[-2]) if n >= 2 else 0.0
+    return max(values[-1] + slope, 0.0), min(0.65, 0.2 + 0.1 * n)
+
+
+def _actual_sales_by_recipe_month(sales: list[Any]) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+    for s in sales:
+        sold = getattr(s, "sold_at", "") or ""
+        d = _parse_iso(str(sold))
+        if d is None:
+            continue
+        ym = f"{d.year}-{d.month:02d}"
+        rid = getattr(s, "recipe_id", "")
+        qty = float(getattr(s, "quantity", 0) or 0)
+        if not rid or qty <= 0:
+            continue
+        out.setdefault(rid, {})
+        out[rid][ym] = out[rid].get(ym, 0.0) + qty
+    return out
+
+
+def _actual_qty_totals(sales: list[Any]) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for s in sales:
+        rid = getattr(s, "recipe_id", "")
+        qty = float(getattr(s, "quantity", 0) or 0)
+        if rid and qty > 0:
+            totals[rid] = totals.get(rid, 0.0) + qty
+    return totals
+
+
+def _business_forecasts(snapshots: list[Any]) -> list[dict[str, Any]]:
+    if not snapshots:
+        return []
+    rows = sorted(snapshots, key=lambda s: getattr(s, "year_month", ""))
+    metrics = [
+        ("totalRevenue", "Revenue", [float(getattr(s, "total_revenue", 0) or 0) for s in rows]),
+        ("grossProfit", "Gross profit", [float(getattr(s, "gross_profit", 0) or 0) for s in rows]),
+        ("netProfit", "Net profit", [float(getattr(s, "net_profit", 0) or 0) for s in rows]),
+    ]
+    out: list[dict[str, Any]] = []
+    for key, label, series in metrics:
+        pred, conf = _forecast_series(series)
+        out.append(
+            {
+                "metric": key,
+                "label": label,
+                "current": round(series[-1], 2),
+                "projectedNextMonth": round(pred, 2),
+                "confidence": round(conf, 2),
+            }
+        )
+    return out
 
 
 def _volatility(history: list[dict[str, Any]]) -> tuple[str, str]:
@@ -150,16 +234,59 @@ def analyze_smart_pricing(body: SmartPricingAnalyzeIn) -> dict[str, Any]:
         volatility_rows.append({"id": it.id, "name": it.name, "risk": risk, "note": note})
 
     demand = _demand_levels(body.summary_sales)
+    actual_qty = _actual_qty_totals(body.actual_sales)
+    blended_demand: dict[str, float] = dict(body.summary_sales)
+    for rid, qty in actual_qty.items():
+        blended_demand[rid] = blended_demand.get(rid, 0.0) + qty
+    blended_levels = _demand_levels(blended_demand)
+
     demand_rows: list[dict[str, Any]] = []
     for r in body.recipes:
         demand_rows.append(
             {
                 "recipeId": r.id,
                 "name": r.name,
-                "level": demand.get(r.id, "—"),
+                "level": blended_levels.get(r.id, demand.get(r.id, "—")),
                 "ordersNextMonthHint": body.summary_sales.get(r.id),
+                "actualQtyTotal": round(actual_qty.get(r.id, 0.0), 1),
             }
         )
+
+    by_recipe_month = _actual_sales_by_recipe_month(body.actual_sales)
+    sales_forecasts: list[dict[str, Any]] = []
+    actual_vs_projected: list[dict[str, Any]] = []
+    for r in body.recipes:
+        monthly = by_recipe_month.get(r.id, {})
+        series = [monthly[k] for k in sorted(monthly.keys())]
+        projected, conf = _forecast_series(series) if series else (body.summary_sales.get(r.id, 0.0), 0.35)
+        avg = sum(series) / len(series) if series else 0.0
+        source = "actual" if series else "projected"
+        sales_forecasts.append(
+            {
+                "recipeId": r.id,
+                "name": r.name,
+                "actualMonthlyAvg": round(avg, 1),
+                "projectedNextMonth": round(projected, 1),
+                "confidence": round(conf if series else 0.35, 2),
+                "source": source,
+            }
+        )
+        projected_qty = body.summary_sales.get(r.id, 0.0)
+        actual_total = actual_qty.get(r.id, 0.0)
+        variance = None
+        if projected_qty > 0 and actual_total > 0:
+            variance = round((actual_total - projected_qty) / projected_qty * 100.0, 1)
+        actual_vs_projected.append(
+            {
+                "recipeId": r.id,
+                "name": r.name,
+                "actualQty": round(actual_total, 1),
+                "projectedQty": round(projected_qty, 1),
+                "variancePct": variance,
+            }
+        )
+
+    business_forecasts = _business_forecasts(body.historical_snapshots)
 
     selling: list[dict[str, Any]] = []
     alerts: list[dict[str, Any]] = []
@@ -259,9 +386,70 @@ def analyze_smart_pricing(body: SmartPricingAnalyzeIn) -> dict[str, Any]:
                 )
 
     profit_hint: list[dict[str, Any]] = []
+    cost_breakdown: list[dict[str, Any]] = []
+    regression_models: list[dict[str, Any]] = []
+    priced_too_low: list[dict[str, Any]] = []
+    priced_too_high: list[dict[str, Any]] = []
+    most_profitable: list[dict[str, Any]] = []
+    growth_potential: list[dict[str, Any]] = []
+    needs_adjustment: list[dict[str, Any]] = []
+
+    total_orders = sum(float(v) for v in body.summary_sales.values()) + sum(
+        float(getattr(s, "quantity", 0) or 0) for s in body.actual_sales
+    )
+    opex_per_order = float(body.monthly_opex) / max(total_orders, 1.0)
+    margin = float(body.target_margin_pct)
+
+    def _linear_price(total_cost: float) -> float:
+        if margin >= 100:
+            return total_cost
+        return total_cost / (1.0 - margin / 100.0)
+
     for r in body.recipes:
+        ing = float(getattr(r, "ingredient_cogs", 0) or 0) or r.cogs * 0.75
+        pkg = float(getattr(r, "packaging_cogs", 0) or 0) or max(0.0, r.cogs - ing)
+        utility = opex_per_order * 0.35
+        labor = opex_per_order * 0.65
+        total_cost = r.cogs + opex_per_order
+
+        linear_p = _linear_price(r.cogs)
+        demand_qty = actual_qty.get(r.id, 0.0) + body.summary_sales.get(r.id, 0.0)
+        demand_factor = min(0.18, demand_qty / max(total_orders, 1.0) * 0.5)
+        multi_p = _linear_price(total_cost) * (1.0 + demand_factor)
+        poly_p = linear_p * (1.0 + 0.04 * min(demand_qty / 50.0, 2.0) ** 2)
+        recommended = round((linear_p * 0.25 + multi_p * 0.45 + poly_p * 0.30), 2)
+        expected_margin = ((recommended - r.cogs) / recommended * 100.0) if recommended > 1e-9 else 0.0
+        rev_impact = round((recommended - r.current_local) * max(demand_qty, 1.0), 2)
+        conf = min(0.94, 0.5 + 0.1 * (1 if demand_qty > 0 else 0) + 0.15 * (1 if body.historical_snapshots else 0))
+
+        cost_breakdown.append(
+            {
+                "recipeId": r.id,
+                "name": r.name,
+                "ingredientCost": round(ing, 4),
+                "packagingCost": round(pkg, 4),
+                "utilityCost": round(utility, 4),
+                "laborCost": round(labor, 4),
+                "opexAllocation": round(opex_per_order, 4),
+                "totalCost": round(total_cost, 4),
+            }
+        )
+        regression_models.append(
+            {
+                "recipeId": r.id,
+                "name": r.name,
+                "linearPrice": round(linear_p, 2),
+                "multipleRegressionPrice": round(multi_p, 2),
+                "polynomialPrice": round(poly_p, 2),
+                "recommendedPrice": recommended,
+                "expectedMarginPct": round(expected_margin, 2),
+                "confidence": round(conf, 2),
+                "revenueImpact": rev_impact,
+            }
+        )
+
         profit_cur = max(0.0, r.current_local - r.cogs)
-        profit_sug = max(0.0, r.suggested_local - r.cogs)
+        profit_sug = max(0.0, recommended - r.cogs)
         profit_hint.append(
             {
                 "recipeId": r.id,
@@ -271,9 +459,35 @@ def analyze_smart_pricing(body: SmartPricingAnalyzeIn) -> dict[str, Any]:
             }
         )
 
+        if r.current_local + 1e-6 < recommended * 0.95:
+            priced_too_low.append(
+                {"recipeId": r.id, "name": r.name, "current": round(r.current_local, 2), "suggested": recommended}
+            )
+            needs_adjustment.append(
+                {"recipeId": r.id, "name": r.name, "reason": "Below ML recommended price — margin opportunity."}
+            )
+        if r.current_local > recommended * 1.08:
+            priced_too_high.append(
+                {"recipeId": r.id, "name": r.name, "current": round(r.current_local, 2), "suggested": recommended}
+            )
+            needs_adjustment.append(
+                {"recipeId": r.id, "name": r.name, "reason": "Above ML band — validate demand elasticity."}
+            )
+        if demand_qty > 0 and profit_sug > profit_cur * 1.1:
+            growth_potential.append(
+                {
+                    "recipeId": r.id,
+                    "name": r.name,
+                    "reason": f"Strong demand ({demand_qty:.0f} units) supports price lift to ₱{recommended:.2f}.",
+                }
+            )
+
+    most_profitable = sorted(profit_hint, key=lambda x: x["profitPerOrderSuggested"], reverse=True)[:5]
+
     model_notes = (
-        "Models: linear regression on dated unit-cost history (30-day horizon) when scikit-learn is installed; "
-        "otherwise a simple slope extrapolation. Selling prices use your spreadsheet COGS + target margin from the client."
+        "Models: Linear regression on COGS+margin; Multiple regression adds OPEX allocation and demand; "
+        "Polynomial regression captures non-linear demand lift. Ingredient costs use polynomial/linear time-series "
+        "forecast (30-day). Business KPIs from Statistics snapshots; sales from recorded transactions."
     )
     if not _HAS_SK:
         model_notes += " Install `scikit-learn` for full regression scoring and confidence tuning."
@@ -286,6 +500,21 @@ def analyze_smart_pricing(body: SmartPricingAnalyzeIn) -> dict[str, Any]:
         "profitPerOrderHint": profit_hint,
         "supplierTips": supplier_tips,
         "alerts": alerts[:12],
+        "salesForecasts": sales_forecasts,
+        "businessForecasts": business_forecasts,
+        "actualVsProjectedDemand": actual_vs_projected,
+        "costBreakdown": cost_breakdown,
+        "regressionModels": regression_models,
+        "mlInsights": {
+            "pricedTooLow": priced_too_low,
+            "pricedTooHigh": priced_too_high,
+            "mostProfitable": [
+                {"recipeId": x["recipeId"], "name": x["name"], "profitPerOrder": x["profitPerOrderSuggested"]}
+                for x in most_profitable
+            ],
+            "growthPotential": growth_potential,
+            "needsAdjustment": needs_adjustment[:8],
+        },
         "modelNotes": model_notes,
         "echo": {"ingredientCount": len(body.ingredients), "recipeCount": len(body.recipes)},
     }
