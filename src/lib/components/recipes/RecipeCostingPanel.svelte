@@ -276,13 +276,13 @@
 		<ul class="mt-3 space-y-2">
 			{#each channels as row}
 				<li
-					class="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-gradient-to-r from-zinc-50/90 to-white px-4 py-3 ring-1 ring-zinc-100/80"
+					class="grid grid-cols-1 items-start gap-x-4 gap-y-2 rounded-2xl bg-gradient-to-r from-zinc-50/90 to-white px-4 py-3 ring-1 ring-zinc-100/80 sm:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)]"
 				>
-					<div>
+					<div class="min-w-0">
 						<p class="text-sm font-semibold text-zinc-900">{row.label}</p>
 						<p class="text-[11px] text-zinc-400">{row.hint}</p>
 					</div>
-					<div class="text-right">
+					<div class="flex min-w-0 flex-col items-end justify-start gap-0.5 text-right sm:justify-self-end">
 						{#if row.key === 'local'}
 							<p class="text-base font-semibold tabular-nums text-zinc-900">{fmt(sell)}</p>
 							<p class="text-[11px] text-zinc-500">
@@ -297,8 +297,10 @@
 									<span class="tabular-nums">{formatPercent1(mpS)}</span> margin · +{fmt(profS)}
 								</p>
 							{:else}
-								<p class="text-base font-semibold text-zinc-400">—</p>
-								<p class="text-[11px] text-zinc-400">Complete Shopee pricing for all lines</p>
+								<p class="text-base font-semibold tabular-nums text-zinc-400">—</p>
+								<p class="max-w-[14rem] text-[11px] leading-snug text-zinc-400 sm:max-w-none">
+									Complete Shopee pricing for all lines
+								</p>
 							{/if}
 						{:else}
 							{#if autoPricing.lazada > 0 && autoPricing.cogsLazada !== null}
@@ -309,8 +311,10 @@
 									<span class="tabular-nums">{formatPercent1(mpL)}</span> margin · +{fmt(profL)}
 								</p>
 							{:else}
-								<p class="text-base font-semibold text-zinc-400">—</p>
-								<p class="text-[11px] text-zinc-400">Complete Lazada pricing for all lines</p>
+								<p class="text-base font-semibold tabular-nums text-zinc-400">—</p>
+								<p class="max-w-[14rem] text-[11px] leading-snug text-zinc-400 sm:max-w-none">
+									Complete Lazada pricing for all lines
+								</p>
 							{/if}
 						{/if}
 					</div>

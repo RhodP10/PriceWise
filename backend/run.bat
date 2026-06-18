@@ -17,6 +17,7 @@ call venv\Scripts\activate.bat
 
 REM Install/upgrade dependencies
 echo Installing dependencies...
+python -m venv venv
 pip install -q -r requirements.txt
 pip install uvicorn
 pip install fastapi uvicorn
@@ -24,6 +25,7 @@ pip install sqlalchemy
 pip install sqlalchemy psycopg2-binary python-dotenv passlib bcrypt python-jose
 pip install playwright
 python -m playwright install chromium
+pip install python-multipart
 
 echo.
 echo Playwright Chromium (for Shopee/Lazada listing sync — first run downloads browser)...
