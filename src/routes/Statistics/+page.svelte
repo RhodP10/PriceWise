@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
 	import StatisticsBiDashboard from '$lib/components/statistics/StatisticsBiDashboard.svelte';
-	import StatisticsCharts from '$lib/components/statistics/StatisticsCharts.svelte';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
 	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
@@ -16,7 +14,7 @@
 		averageSuggestedPrice,
 		computeLiveMonthKpis
 	} from '$lib/utils/dashboardFinance';
-	import { buildMonthlySeries, pctChange } from '$lib/utils/dashboardSeries';
+	import { pctChange } from '$lib/utils/dashboardSeries';
 	import {
 		addCalendarMonths,
 		kpisFromSnapshotRow,
@@ -30,22 +28,13 @@
 		buildIngredientSupplierCompares,
 		supplierWinCounts
 	} from '$lib/utils/supplierAnalytics';
-	import { formatPhp, formatPercent1, formatPercent1Signed } from '$lib/utils/numberFormat';
+	import { formatPhp, formatPercent1 } from '$lib/utils/numberFormat';
 
 	const ingredientMasters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
 	const recipes = $derived(recipeStore.recipes);
 
-	const costingInput = $derived({
-		vatRegistered: costingSettings.vatRegistered,
-		vatPct: costingSettings.vatPct,
-		batchSize: costingSettings.batchSize,
-		targetMarginPct: costingSettings.targetMarginPct,
-		discountPct: costingSettings.discountPct
-	});
-
 	const live = $derived(computeLiveMonthKpis(recipes, ingredientMasters, otherMasters));
-	const series = $derived(buildMonthlySeries(monthlySummaryStore.rows, live, 6));
 	const compares = $derived(buildIngredientSupplierCompares(ingredientMasters));
 	const supplierCounts = $derived(supplierWinCounts(ingredientMasters));
 	const avgLanded = $derived(avgLandedByChannel(compares));
@@ -54,18 +43,16 @@
 	const shopeeVsLazada = $derived(avgPctCheaperThan(ingredientMasters, 'shopee', 'lazada'));
 	const localVsLazada = $derived(avgPctCheaperThan(ingredientMasters, 'local', 'lazada'));
 
-	const avgSuggest = $derived(averageSuggestedPrice(recipes, ingredientMasters, otherMasters, costingInput));
+	const avgSuggest = $derived(
+		averageSuggestedPrice(recipes, ingredientMasters, otherMasters, {
+			vatRegistered: costingSettings.vatRegistered,
+			vatPct: costingSettings.vatPct,
+			batchSize: costingSettings.batchSize,
+			targetMarginPct: costingSettings.targetMarginPct,
+			discountPct: costingSettings.discountPct
+		})
+	);
 	const avgLocal = $derived(averageChannelPrice(recipes, 'local'));
-	const avgShopee = $derived(averageChannelPrice(recipes, 'shopee'));
-	const avgLazada = $derived(averageChannelPrice(recipes, 'lazada'));
-
-	const costTrendPct = $derived.by(() => {
-		const pts = series;
-		if (pts.length < 2) return null;
-		const a = pts[pts.length - 2]!.revenue - pts[pts.length - 2]!.netProfit;
-		const b = pts[pts.length - 1]!.revenue - pts[pts.length - 1]!.netProfit;
-		return pctChange(a, b);
-	});
 
 	let kpiScope = $state<'monthly' | 'yearly'>('monthly');
 	let kpiYearMonth = $state('');
@@ -225,10 +212,6 @@
 
 	function fmt(n: number): string {
 		return formatPhp(n);
-	}
-
-	function fmtNumOrDash(n: number | null): string {
-		return n === null ? '—' : fmt(n);
 	}
 
 	function snapshotTotalOrders(d: MonthlyFinancialSnapshot): number {
@@ -515,93 +498,6 @@
 
 	<div class="glass overflow-hidden rounded-3xl p-4 shadow-xl sm:p-6">
 		<StatisticsBiDashboard />
-	</div>
-
-	{#if browser}
-		<StatisticsCharts {series} supplierCounts={supplierCounts} avgLanded={avgLanded} />
-	{:else}
-		<p class="text-sm text-zinc-500">Charts load in the browser.</p>
-	{/if}
-
-	<div class="grid gap-6 lg:grid-cols-3">
-		<div
-			class="glass overflow-hidden rounded-3xl border border-emerald-200/50 bg-gradient-to-br from-emerald-50/90 to-white p-6 shadow-xl lg:col-span-1"
-		>
-			<p class="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Best supplier (SKUs)</p>
-			<p class="mt-2 text-2xl font-bold text-emerald-950">{bestSup}</p>
-			<p class="mt-3 text-xs leading-relaxed text-emerald-900/85">
-				Per ingredient SKU: lowest landed cost wins. Lazada and Shopee count only when you enter marketplace landed prices;
-				otherwise only your local catalog package cost is compared.
-			</p>
-		</div>
-		<div class="glass overflow-hidden rounded-3xl p-6 shadow-xl lg:col-span-2">
-			<h2 class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Channel insights</h2>
-			<ul class="mt-4 space-y-3 text-sm leading-relaxed text-zinc-700">
-				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
-					{#if shopeeVsLazada !== null}
-						<strong class="text-zinc-900">Shopee</strong> averages <span class="font-semibold text-emerald-700">{formatPercent1(shopeeVsLazada)}</span>
-						cheaper than <strong class="text-zinc-900">Lazada</strong> on comparable SKUs (where Shopee wins on price).
-					{:else}
-						Not enough Shopee vs Lazada pairs to compare averages yet.
-					{/if}
-				</li>
-				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
-					{#if localVsLazada !== null}
-						<strong class="text-zinc-900">Local</strong> averages <span class="font-semibold text-emerald-700">{formatPercent1(localVsLazada)}</span>
-						cheaper than <strong class="text-zinc-900">Lazada</strong> where Local undercuts Lazada.
-					{:else}
-						Local vs Lazada comparison needs more SKU spread.
-					{/if}
-				</li>
-				<li class="rounded-2xl bg-zinc-50/80 px-4 py-3">
-					Average savings vs most expensive channel per SKU:
-					<strong class="tabular-nums text-zinc-900">{formatPercent1(compares.reduce((s, c) => s + c.savingsVsWorstPct, 0) / Math.max(1, compares.length))}</strong>.
-				</li>
-			</ul>
-		</div>
-	</div>
-
-	<div class="glass overflow-hidden rounded-3xl p-6 shadow-xl sm:p-8">
-		<h2 class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Recommendation analytics</h2>
-		<div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
-				<p class="text-xs text-zinc-500">Avg suggested price</p>
-				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">{fmt(avgSuggest)}</p>
-				<p class="mt-1 text-[10px] text-zinc-400">From costing (margin / VAT / batch)</p>
-			</div>
-			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
-				<p class="text-xs text-zinc-500">Avg Local list price</p>
-				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">{fmtNumOrDash(avgLocal)}</p>
-			</div>
-			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
-				<p class="text-xs text-zinc-500">Target markup (setting)</p>
-				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">{costingSettings.targetMarginPct}%</p>
-			</div>
-			<div class="rounded-2xl border border-zinc-100 bg-white/60 p-4">
-				<p class="text-xs text-zinc-500">Cost pressure (est.)</p>
-				<p class="mt-1 text-lg font-bold tabular-nums text-zinc-900">
-					{#if costTrendPct !== null}
-						<span class:text-red-600={costTrendPct > 0} class:text-emerald-700={costTrendPct <= 0}>
-							{formatPercent1Signed(costTrendPct)}
-						</span>
-					{:else}
-						—
-					{/if}
-				</p>
-				<p class="mt-1 text-[10px] text-zinc-400">MoM implied COGS from chart series</p>
-			</div>
-		</div>
-		<p class="mt-6 text-xs leading-relaxed text-zinc-500">
-			<strong class="text-zinc-700">Competitive pricing:</strong> compare avg Local ({fmtNumOrDash(avgLocal)}) to Shopee ({fmtNumOrDash(
-				avgShopee
-			)}) and Lazada ({fmtNumOrDash(avgLazada)}) recipe list prices — Shopee/Lazada averages count only recipes with those
-			channels priced from marketplace landed costs.
-		</p>
-		{#if costTrendPct !== null && costTrendPct > 2}
-			<p class="mt-3 rounded-xl bg-amber-50 px-4 py-2 text-xs font-medium text-amber-900 ring-1 ring-amber-100">
-				Costs in the trend series are rising — consider refreshing supplier quotes or menu prices.
-			</p>
-		{/if}
 	</div>
 
 	<div class="glass overflow-hidden rounded-3xl shadow-xl">
