@@ -1,13 +1,16 @@
-/** Shared API origin; set `VITE_API_URL` in `.env` to override (full URL, no trailing slash). */
-const envUrl = typeof import.meta.env?.VITE_API_URL === 'string' ? import.meta.env.VITE_API_URL.trim() : '';
+/** Shared API origin. Set `PUBLIC_API_URL` or `VITE_API_URL` (full URL, no trailing slash). */
+function envApiUrl(): string {
+	const publicUrl =
+		typeof import.meta.env?.PUBLIC_API_URL === 'string' ? import.meta.env.PUBLIC_API_URL.trim() : '';
+	const viteUrl =
+		typeof import.meta.env?.VITE_API_URL === 'string' ? import.meta.env.VITE_API_URL.trim() : '';
+	return (publicUrl || viteUrl).replace(/\/+$/, '');
+}
+
+const envUrl = envApiUrl();
 
 /**
- * In dev, call same-origin `/api` so Vite proxies to FastAPI — no CORS.
- * Production / preview without env: direct backend URL (set `VITE_API_URL` when frontend and API differ).
+ * In local `vite dev`, call same-origin `/api` so Vite proxies to FastAPI — no CORS.
+ * On Vercel, set PUBLIC_API_URL or VITE_API_URL to the Render API origin at build time.
  */
-export const API_BASE =
-	envUrl !== ''
-		? envUrl
-		: import.meta.env.DEV
-			? '/api'
-			: 'http://localhost:8000';
+export const API_BASE = envUrl !== '' ? envUrl : import.meta.env.DEV ? '/api' : '';

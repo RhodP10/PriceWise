@@ -1,0 +1,7 @@
+backend
+.svelte-kit
+node_modules
+.git
+dist
+build
+*.db

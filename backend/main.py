@@ -1,4 +1,5 @@
 import asyncio
+import os
 from datetime import datetime
 from typing import Literal
 
@@ -172,11 +173,17 @@ def _migrate_local_store_product_image_url() -> None:
 
 _migrate_local_store_product_image_url()
 
-# Bearer tokens are sent via Authorization header (not cookies), so allow_origins=["*"]
-# avoids brittle CORS when Origin is localhost vs 127.0.0.1 vs LAN IP during dev.
+def _cors_origins() -> list[str]:
+    raw = os.getenv("CORS_ORIGINS", "").strip()
+    if not raw:
+        # Vercel production + preview URLs vary; Bearer tokens are not cookies so * is safe.
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -223,6 +230,11 @@ def _supplier_store(db: Session, user: User) -> LocalStore:
 @app.get("/")
 def root():
     return {"message": "PriceWise recipe costing API is running"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 class MarketplaceScrapeIn(BaseModel):
