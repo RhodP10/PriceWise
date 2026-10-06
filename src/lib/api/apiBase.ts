@@ -1,16 +1,18 @@
-/** Shared API origin. Set `PUBLIC_API_URL` or `VITE_API_URL` (full URL, no trailing slash). */
+/**
+ * Prefer an absolute Render URL when `PUBLIC_API_URL` / `VITE_API_URL` is set at build time.
+ * Otherwise use same-origin `/api`, which Vite (dev) and Vercel (BACKEND_URL) proxy to FastAPI.
+ * Never use the Vercel origin — that 404s `/auth/register` as a SvelteKit page.
+ */
 function envApiUrl(): string {
 	const publicUrl =
 		typeof import.meta.env?.PUBLIC_API_URL === 'string' ? import.meta.env.PUBLIC_API_URL.trim() : '';
 	const viteUrl =
 		typeof import.meta.env?.VITE_API_URL === 'string' ? import.meta.env.VITE_API_URL.trim() : '';
-	return (publicUrl || viteUrl).replace(/\/+$/, '');
+	const url = (publicUrl || viteUrl).replace(/\/+$/, '');
+	if (/^https?:\/\//i.test(url) && !url.includes('.vercel.app')) {
+		return url;
+	}
+	return '';
 }
 
-const envUrl = envApiUrl();
-
-/**
- * In local `vite dev`, call same-origin `/api` so Vite proxies to FastAPI — no CORS.
- * On Vercel, set PUBLIC_API_URL or VITE_API_URL to the Render API origin at build time.
- */
-export const API_BASE = envUrl !== '' ? envUrl : import.meta.env.DEV ? '/api' : '';
+export const API_BASE = envApiUrl() || '/api';
